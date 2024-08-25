@@ -28,6 +28,7 @@ pub fn build(b: *std.Build) !void {
             "cimgui/imgui/backends/imgui_impl_glfw.cpp",
             "cimgui/imgui/backends/imgui_impl_opengl3.cpp",
             "glad/src/glad.c",
+            "src/stb_image.c",
         },
     });
     exe.addIncludePath(b.path("cimgui"));
@@ -35,6 +36,7 @@ pub fn build(b: *std.Build) !void {
     exe.addIncludePath(b.path("cimgui/imgui/backends"));
     exe.addIncludePath(b.path("cimgui/imgui"));
     exe.addIncludePath(b.path("glad/include"));
+    exe.addIncludePath(b.path("stb_image"));
     exe.defineCMacro("IMGUI_IMPL_API", "extern \"C\"");
     exe.linkSystemLibrary("glfw3");
     exe.linkSystemLibrary("gdal");
@@ -63,4 +65,23 @@ pub fn build(b: *std.Build) !void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+
+    //get textures
+    const get_textures = b.addExecutable(.{
+        .name = "get_textures",
+        .root_source_file = b.path("src/get_textures.zig"),
+        .target = target,
+        .optimize = opt,
+    });
+
+    b.installArtifact(get_textures);
+
+    const get_tex_run_cmd = b.addRunArtifact(get_textures);
+
+    if (b.args) |args| {
+        get_tex_run_cmd.addArgs(args);
+    }
+
+    const get_tex_run_step = b.step("get", "Get textures from the google maps API");
+    get_tex_run_step.dependOn(&get_tex_run_cmd.step);
 }
