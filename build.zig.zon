@@ -1,0 +1,15 @@
+.{
+    .name = "3DMap",
+    .version = "0.0.1",
+    .dependencies = .{
+        .zstbi = .{
+            .path = "zstbi/",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "README.md",
+        "src",
+    },
+}

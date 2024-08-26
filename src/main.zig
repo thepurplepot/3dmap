@@ -19,6 +19,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
 
+    //TODO: Add more options
     if (args.len < 2) {
         std.debug.print("Usage: {s} <filename>\n", .{args[0]});
         return error.InvalidArgs;
@@ -38,11 +39,11 @@ pub fn main() !void {
 
     var ui = try Ui.init(glfw.window);
     defer ui.deinit();
-    const bounds: Mesh.PositionsMetaData = .{.min_lon = -3.244, .min_lat = 54.418, .max_lon = -3.007, .max_lat = 54.5175}; 
+
+    const bounds: Mesh.Bounds = .{.min = .{.lon = -3.5, .lat = 54.1}, .max = .{.lon = -2.5, .lat = 54.7}}; 
     var mesh = try Mesh.meshFromElevations(alloc, bounds, map.elevations, map.positions);
-    // mesh.printMesh();
-    //const mesh = try Mesh.testMesh();
     defer mesh.deinit(alloc);
+
     const vs_source = @embedFile("shaders/vertex.glsl");
     const fs_source = @embedFile("shaders/fragment.glsl");
     const program = try GlfwWrapper.compileLinkProgram(glfw.log, vs_source, vs_source.len, fs_source, fs_source.len);

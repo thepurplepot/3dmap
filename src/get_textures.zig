@@ -1,9 +1,9 @@
 const std = @import("std");
+const zstbi = @import("zstbi"); // For cropping copywrite marking
 const Allocator = std.mem.Allocator;
 const Client = std.http.Client;
 
-//TODO request signing!
-// const Hash = std.crypto.hash.Sha1;
+// const Hash = std.crypto.hash.Sha1; // TODO For signing api requests
 
 const secret_file = @embedFile("secret.json");
 
@@ -11,11 +11,8 @@ const Secret = struct {
     api_key: []const u8,
 };
 
-fn readSecret(alloc: Allocator) !Secret {
-    const parsed =  try std.json.parseFromSlice(Secret, alloc, secret_file, .{});
-    defer parsed.deinit();
-
-    return parsed.value;
+fn readSecret(alloc: Allocator) !std.json.Parsed(Secret) {
+    return std.json.parseFromSlice(Secret, alloc, secret_file, .{});
 }
 
 const LatLon = struct {
@@ -33,8 +30,8 @@ const Bounds = struct {
     max: LatLon, // NE
 };
 
-const MetaData = struct {
-    filename: []u8,
+pub const MetaData = struct {
+    filename: [:0]const u8,
     center: LatLon,
     bounds: Bounds,
 };
@@ -65,13 +62,16 @@ const MetaDataWriter = struct {
 
 const ImgWriter = struct {
     output_dir: std.fs.Dir,
+    output_dir_path: []const u8,
     alloc: Allocator,
 
+    const jpg_quality = 80;
+
     pub fn init(alloc: Allocator, output_dir: []const u8) !ImgWriter {
-        const dir = try std.fs.cwd().makeOpenPath(output_dir, .{.iterate = true});
+        const dir = try std.fs.cwd().makeOpenPath(output_dir, .{ .iterate = true });
         var it = dir.iterate();
         while (try it.next()) |entry| {
-            switch(entry.kind) {
+            switch (entry.kind) {
                 .file => {
                     if (std.mem.endsWith(u8, entry.name, ".png") or std.mem.endsWith(u8, entry.name, ".jpg")) {
                         try dir.deleteFile(entry.name);
@@ -81,7 +81,11 @@ const ImgWriter = struct {
             }
         }
 
-        return .{ .output_dir = dir, .alloc = alloc };
+        return .{ .output_dir = dir, .output_dir_path = output_dir, .alloc = alloc };
+    }
+
+    pub fn deinit(self: ImgWriter) void {
+        self.output_dir.close();
     }
 
     pub fn write(self: ImgWriter, filename: []const u8, img: []const u8) !void {
@@ -91,15 +95,42 @@ const ImgWriter = struct {
         try file.writeAll(img);
     }
 
-    pub fn imgFilenameFromTile(self: ImgWriter, col: usize, row: usize, format: []const u8) ![]u8 {
-        return std.fmt.allocPrint(self.alloc, "{d}_{d}.{s}", .{col, row, format});
+    pub fn imgFilenameFromTile(self: ImgWriter, col: usize, row: usize, format: []const u8) ![:0]const u8 {
+        return std.fmt.allocPrintZ(self.alloc, "{d}_{d}.{s}", .{ col, row, format });
     }
 
-    pub fn freeFilename(self: ImgWriter, filename: []u8) void {
+    pub fn freeFilename(self: ImgWriter, filename: [:0]const u8) void {
         self.alloc.free(filename);
     }
-};
 
+    pub fn writeCropped(self: ImgWriter, filename: [:0]const u8, img: []const u8, crop_px: u32) !void {
+        zstbi.init(self.alloc);
+        defer zstbi.deinit();
+
+        var image = try zstbi.Image.loadFromMemory(img, 0);
+        defer zstbi.Image.deinit(&image);
+
+        const new_height = image.height - crop_px;
+        if (new_height <= 0) {
+            return error.InvalidImageDimensions;
+        }
+        const cropped_size = image.width * new_height * image.num_components;
+
+        image.data = image.data[0..cropped_size];
+        image.height = new_height;
+
+        const path = try std.fs.path.joinZ(self.alloc, &.{ self.output_dir_path, filename });
+        defer self.alloc.free(path);
+
+        if(std.mem.endsWith(u8, filename, ".png")) {
+            try zstbi.Image.writeToFile(image, path, .png);
+        } else if (std.mem.endsWith(u8, filename, ".jpg")) {
+            try zstbi.Image.writeToFile(image, path, .{.jpg = .{ .quality = jpg_quality }});
+        } else {
+            return error.InvalidImageFormat;
+        }
+    }
+};
 
 const Api = struct {
     const Self = @This();
@@ -122,10 +153,12 @@ const Api = struct {
     pub fn create(alloc: Allocator) Self {
         const c = Client{ .allocator = alloc };
         const secret = readSecret(alloc) catch @panic("Failed to read secret api-key!");
+        defer secret.deinit();
+
         return .{
             .alloc = alloc,
             .client = c,
-            .api_key = secret.api_key,
+            .api_key = secret.value.api_key,
         };
     }
 
@@ -161,13 +194,13 @@ const Api = struct {
 
         try url.appendSlice(api_url);
         try url.appendSlice("?center=");
-        const center_str = try std.fmt.bufPrint(&buf, "{d:.5},{d:.5}", .{center.lat, center.lon});
+        const center_str = try std.fmt.bufPrint(&buf, "{d:.5},{d:.5}", .{ center.lat, center.lon });
         try url.appendSlice(center_str);
         try url.appendSlice("&zoom=");
         const zoom_str = try std.fmt.bufPrint(&buf, "{d}", .{zoom});
         try url.appendSlice(zoom_str);
         try url.appendSlice("&maptype=satellite&size=");
-        const size = try std.fmt.bufPrint(&buf, "{d}x{d}", .{img_width, img_height});
+        const size = try std.fmt.bufPrint(&buf, "{d}x{d}", .{ img_width, img_height });
         try url.appendSlice(size);
         try url.appendSlice("&format=");
         if (format) |f| {
@@ -200,16 +233,20 @@ fn pointToLatLon(map_width: u32, map_height: u32, point: Point) LatLon {
     return .{ .lat = lat, .lon = lon };
 }
 
-fn getImageBounds(map_width: u32, map_height: u32, x_scale: f64, y_scale: f64, center: LatLon) Bounds {
+fn getImageBounds(map_width: u32, map_height: u32, x_scale: f64, y_scale: f64, center: LatLon, crop_y_scale: ?f64) Bounds {
     const center_point = latLonToPoint(map_width, map_height, center);
 
-    const sw_x = center_point.x - @as(f64, @floatFromInt(map_width)) / (2.0 * x_scale);
-    const sw_y = center_point.y + @as(f64, @floatFromInt(map_height)) / (2.0 * y_scale);
-    //TODO remove 45px from the bottom
+    const sw_x = center_point.x - 1 / (2.0 * x_scale);
+    var sw_y: f64 = undefined;
+    if (crop_y_scale) |s| {
+        sw_y = center_point.y + 1 / (2.0 * s);
+    } else {
+        sw_y = center_point.y + 1 / (2.0 * y_scale);
+    }
     const sw = pointToLatLon(map_width, map_height, .{ .x = sw_x, .y = sw_y });
 
-    const ne_x = center_point.x + @as(f64, @floatFromInt(map_width)) / (2.0 * x_scale);
-    const ne_y = center_point.y - @as(f64, @floatFromInt(map_height)) / (2.0 * y_scale);
+    const ne_x = center_point.x + 1 / (2.0 * x_scale);
+    const ne_y = center_point.y - 1 / (2.0 * y_scale);
     const ne = pointToLatLon(map_width, map_height, .{ .x = ne_x, .y = ne_y });
 
     return .{ .min = sw, .max = ne };
@@ -217,31 +254,47 @@ fn getImageBounds(map_width: u32, map_height: u32, x_scale: f64, y_scale: f64, c
 
 fn getLatStep(map_width: u32, map_height: u32, y_scale: f64, center: LatLon) f64 {
     const center_point = latLonToPoint(map_width, map_height, center);
-
-    const step_y = center_point.y - @as(f64, @floatFromInt(map_height)) / y_scale;
+    
+    const step_y = center_point.y - 1 / y_scale;
     const step = pointToLatLon(map_width, map_height, .{ .x = center_point.x, .y = step_y });
 
-    return center.lat - step.lat;
+    return step.lat - center.lat;
 }
 
-fn sampleBounds(bounds: Bounds, zoom: u32, img_width: u32, img_height: u32, format: []const u8, api: *Api, img_writer: ImgWriter, meta_data_writer: MetaDataWriter) !void {
+fn sampleBounds(bounds: Bounds, zoom: u32, img_width: u32, img_height: u32, format: []const u8, crop: bool, api: *Api, img_writer: ImgWriter, meta_data_writer: MetaDataWriter) !void {
     const mercator_range = 256.0;
+    const crop_px = 45; // crop 45px from the bottom (Google watermark)
 
-    const x_scale = std.math.pow(f64, 2.0, @floatFromInt(zoom)) * mercator_range / @as(f64, @floatFromInt(img_width));
-    const y_scale = std.math.pow(f64, 2.0, @floatFromInt(zoom)) * mercator_range / @as(f64, @floatFromInt(img_height));
+    const x_scale = std.math.pow(f64, 2.0, @floatFromInt(zoom)) / @as(f64, @floatFromInt(img_width));
+    const y_scale = std.math.pow(f64, 2.0, @floatFromInt(zoom)) / @as(f64, @floatFromInt(img_height));
+    const crop_y_scale: f64 = blk: { 
+        if (crop) {
+            // Div 45 by 2 as scale is 2
+            break :blk (std.math.pow(f64, 2.0, @floatFromInt(zoom)) / (@as(f64, @floatFromInt(img_height)) - @as(f64, @floatFromInt(crop_px)) / 2)); 
+        } else {
+            break :blk y_scale;
+        }
+    };
+    const crop_y_scale_: f64 = blk: {
+        if (crop) {
+            break :blk (std.math.pow(f64, 2.0, @floatFromInt(zoom)) / (@as(f64, @floatFromInt(img_height)) + @as(f64, @floatFromInt(crop_px)) / 2)); 
+        } else {
+            break :blk y_scale;
+        }
+    };
     // start SW
     const start: LatLon = .{ .lat = bounds.min.lat, .lon = bounds.min.lon };
-    const start_bounds = getImageBounds(mercator_range, mercator_range, x_scale, y_scale, start);
+    const start_bounds = getImageBounds(mercator_range, mercator_range, x_scale, y_scale, start, crop_y_scale_);
     const lon_step = start_bounds.max.lon - start_bounds.min.lon;
 
     var row: usize = 0;
     var lat: f64 = start.lat;
-    while(lat <= bounds.max.lat) {
+    while (lat <= bounds.max.lat) {
         var col: usize = 0;
         var lon: f64 = start.lon;
-        while(lon <= bounds.max.lon) {
+        while (lon <= bounds.max.lon) {
             const center: LatLon = .{ .lat = lat, .lon = lon };
-
+            
             const img = try api.get(.{
                 .center = center,
                 .zoom = zoom,
@@ -252,12 +305,15 @@ fn sampleBounds(bounds: Bounds, zoom: u32, img_width: u32, img_height: u32, form
             });
             defer api.alloc.free(img);
 
-            const img_bounds = getImageBounds(mercator_range, mercator_range, x_scale, y_scale, center);
+            const img_bounds = getImageBounds(mercator_range, mercator_range, x_scale, y_scale, center, crop_y_scale_);
             const img_filename = try img_writer.imgFilenameFromTile(col, row, format);
             defer img_writer.freeFilename(img_filename);
-            try img_writer.write(img_filename, img);
-            //TODO need to remove 45 px from the bottom of the image! and redo the lat step
-            //use stbimg
+            if (crop) {
+                try img_writer.writeCropped(img_filename, img, crop_px); // crop 45px from the bottom
+            } else {
+                try img_writer.write(img_filename, img);
+            }
+
             const meta_data = MetaData{
                 .filename = img_filename,
                 .center = center,
@@ -270,9 +326,12 @@ fn sampleBounds(bounds: Bounds, zoom: u32, img_width: u32, img_height: u32, form
         }
         row += 1;
         // step up N
-        lat -= getLatStep(mercator_range, mercator_range, y_scale, .{ .lat = lat, .lon = lon });
+        const step = getLatStep(mercator_range, mercator_range, crop_y_scale, .{ .lat = lat, .lon = lon });
+        lat += step;
     }
 }
+
+
 
 const Args = struct {
     output_dir: []const u8 = undefined,
@@ -281,6 +340,7 @@ const Args = struct {
     img_width: u32 = 640,
     img_height: u32 = 640,
     img_format: []const u8 = "png",
+    crop: bool = true,
     it: std.process.ArgIterator = undefined,
 
     const Option = enum {
@@ -290,6 +350,7 @@ const Args = struct {
         @"--img-width",
         @"--img-height",
         @"--img-format",
+        @"-no-crop",
     };
 
     fn deinit(self: *Args) void {
@@ -308,6 +369,7 @@ const Args = struct {
         var img_width_opt: ?[]const u8 = null;
         var img_height_opt: ?[]const u8 = null;
         var img_format_opt: ?[]const u8 = null;
+        var crop_opt: ?bool = null;
 
         while (it.next()) |arg| {
             const opt = std.meta.stringToEnum(Option, arg) orelse {
@@ -322,37 +384,52 @@ const Args = struct {
                 .@"--img-width" => img_width_opt = it.next(),
                 .@"--img-height" => img_height_opt = it.next(),
                 .@"--img-format" => img_format_opt = it.next(),
+                .@"-no-crop" => crop_opt = false,
             }
         }
 
         ret.output_dir = output_dir_opt orelse return error.MissingOutputDir;
 
-        if(bounds_opt) |b| {
+        if (bounds_opt) |b| {
             ret.bounds = try parseBounds(b);
         } else {
             return error.MissingBounds;
         }
 
-        if(zoom_opt) |z| {
+        if (zoom_opt) |z| {
             const parsed = try std.fmt.parseInt(u32, z, 10);
             ret.zoom = parsed;
+            if (ret.zoom > 21) {
+                @panic("Zoom level must be between 0 and 21!");
+            }
         } else {
             return error.MissingZoom;
         }
 
-        if(img_width_opt) |w| {
+        if (img_width_opt) |w| {
             const parsed = try std.fmt.parseInt(u32, w, 10);
             ret.img_width = parsed;
+            if(ret.img_width > 640) {
+                @panic("Image width must be less than or equal to 640!");
+            }
         }
 
-        if(img_height_opt) |h| {
+        if (img_height_opt) |h| {
             const parsed = try std.fmt.parseInt(u32, h, 10);
             ret.img_height = parsed;
+            if(ret.img_height > 640) {
+                @panic("Image height must be less than or equal to 640!");
+            }
         }
 
-        if(img_format_opt) |f| {
+        if (img_format_opt) |f| {
             ret.img_format = f;
+            if(!std.mem.eql(u8, f, "png") and !std.mem.eql(u8, f, "jpg")) {
+                @panic("Image format must be either png or jpg!");
+            }
         }
+
+        ret.crop = crop_opt orelse true;
 
         ret.it = it;
 
@@ -361,7 +438,7 @@ const Args = struct {
 
     fn parseBounds(bounds: []const u8) !Bounds {
         var it = std.mem.tokenizeAny(u8, bounds, " ,");
-        
+
         var lat_lon: [4]f64 = undefined;
         var i: usize = 0;
         while (it.next()) |token| {
@@ -381,7 +458,7 @@ const Args = struct {
     }
 };
 
-pub fn main () !void {
+pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
@@ -394,8 +471,8 @@ pub fn main () !void {
 
     var meta_data_writer = try MetaDataWriter.open(args.output_dir, "meta_data.json");
     defer meta_data_writer.close();
-    
+
     const img_writer = try ImgWriter.init(alloc, args.output_dir);
 
-    try sampleBounds(args.bounds, args.zoom, args.img_width, args.img_height, args.img_format, &api, img_writer, meta_data_writer);
+    try sampleBounds(args.bounds, args.zoom, args.img_width, args.img_height, args.img_format, args.crop, &api, img_writer, meta_data_writer);
 }

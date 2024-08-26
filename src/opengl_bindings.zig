@@ -96,3 +96,17 @@ pub export fn glActiveTexture(val: u32) void {
 pub export fn glBindTexture(target: u32, val: u32) void {
     c.glBindTexture(@bitCast(target), @bitCast(val));
 }
+
+pub export fn glCreateTexture() u32 {
+    var tex: c.GLuint = undefined;
+    c.glGenTextures(1, &tex);
+    return @bitCast(tex);
+}
+
+pub export fn glTexParameteri(target: i32, param: i32, val: i32) void {
+    c.glTexParameteri(@bitCast(target), @bitCast(param), val);
+}
+
+pub export fn glTexImage2D(target: i32, level: i32, internalformat: i32, typ: i32, ptr: [*]const u8, width: usize, height: usize) void {
+    c.glTexImage2D(@bitCast(target), level, internalformat, @intCast(width), @intCast(height), 0, c.GL_RGBA, @intCast(typ), ptr);
+}

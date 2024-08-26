@@ -28,7 +28,6 @@ pub fn build(b: *std.Build) !void {
             "cimgui/imgui/backends/imgui_impl_glfw.cpp",
             "cimgui/imgui/backends/imgui_impl_opengl3.cpp",
             "glad/src/glad.c",
-            "src/stb_image.c",
         },
     });
     exe.addIncludePath(b.path("cimgui"));
@@ -36,12 +35,15 @@ pub fn build(b: *std.Build) !void {
     exe.addIncludePath(b.path("cimgui/imgui/backends"));
     exe.addIncludePath(b.path("cimgui/imgui"));
     exe.addIncludePath(b.path("glad/include"));
-    exe.addIncludePath(b.path("stb_image"));
     exe.defineCMacro("IMGUI_IMPL_API", "extern \"C\"");
     exe.linkSystemLibrary("glfw3");
     exe.linkSystemLibrary("gdal");
     exe.linkLibC();
     exe.linkLibCpp();
+
+    const zstbi = b.dependency("zstbi", .{});
+    exe.root_module.addImport("zstbi", zstbi.module("root"));
+    exe.linkLibrary(zstbi.artifact("zstbi"));
 
     b.installArtifact(exe);
 
@@ -55,7 +57,7 @@ pub fn build(b: *std.Build) !void {
     run_step.dependOn(&run_cmd.step);
 
     const tests = b.addTest(.{
-        .root_source_file = b.path("src/GeoTiffParser.zig"),
+        .root_source_file = b.path("src/Mesh.zig"),
         .target = target,
         .optimize = opt,
     });
@@ -73,6 +75,9 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = opt,
     });
+
+    get_textures.root_module.addImport("zstbi", zstbi.module("root"));
+    get_textures.linkLibrary(zstbi.artifact("zstbi"));
 
     b.installArtifact(get_textures);
 

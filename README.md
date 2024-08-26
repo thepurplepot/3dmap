@@ -17,7 +17,7 @@ N.B Ensure the topography data fully covers the OSM data exported.
 
 zig build run -- <filename>
 
-
+zig build get -- bellow
 ./zig-out/bin/get_textures --output-dir output/ --zoom 12 --bounds 54.5,-3.1,54.7,-2.9
 
 ### Todos

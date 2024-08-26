@@ -1,6 +1,8 @@
 const std = @import("std");
 const gl = @import("opengl_bindings.zig");
 
+//TODO better movment
+
 const Vector3f = struct {
     x: f32,
     y: f32,
