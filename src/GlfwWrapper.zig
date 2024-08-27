@@ -281,6 +281,8 @@ fn getInput(self: *GlfwWrapper, alloc: Allocator) ![]InputAction {
     var ret = std.ArrayList(InputAction).init(alloc);
     defer ret.deinit();
 
+    try ret.append(InputAction{ .mouse_moved = self.getCursorPos() });
+
     const glfw_mouse_down = gl.c.glfwGetMouseButton(self.window, gl.c.GLFW_MOUSE_BUTTON_1) != 0;
     if (glfw_mouse_down != self.mouse_down) {
         if (glfw_mouse_down) {
@@ -359,26 +361,25 @@ pub fn handleGlfwActions(alloc: Allocator, glfw: *GlfwWrapper, cam: *Camera) !vo
         switch (action) {
             .mouse_pressed => |pos| {
                 std.debug.print("Mouse pressed at {d:.2}, {d:.2}\n", .{ pos.x, pos.y });
-                cam.setTarget(.{.x = pos.x, .y = pos.y, .z = 0.0});
+                cam.mouse_down = true;
             },
             .mouse_released => {
-                //TODO: Implement
+                cam.mouse_down = false;
             },
             .mouse_moved => |pos| {
-                // NOTE: This is called every frame anyways so do nothing
-                _ = pos;
+                cam.updateMousePos(pos);
             },
             .move_forward => {
-                cam.move(.Forward);
+                cam.handleMove(.Forward);
             },
             .move_backward => {
-                cam.move(.Backward);
+                cam.handleMove(.Backward);
             },
             .move_left => {
-                cam.move(.Left);
+                cam.handleMove(.Left);
             },
             .move_right => {
-                cam.move(.Right);
+                cam.handleMove(.Right);
             },
         }
     }

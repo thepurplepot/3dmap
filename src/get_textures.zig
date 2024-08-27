@@ -265,34 +265,37 @@ fn sampleBounds(bounds: Bounds, zoom: u32, img_width: u32, img_height: u32, form
     const mercator_range = 256.0;
     const crop_px = 45; // crop 45px from the bottom (Google watermark)
 
-    const x_scale = std.math.pow(f64, 2.0, @floatFromInt(zoom)) / @as(f64, @floatFromInt(img_width));
-    const y_scale = std.math.pow(f64, 2.0, @floatFromInt(zoom)) / @as(f64, @floatFromInt(img_height));
-    const crop_y_scale: f64 = blk: { 
+    const scale = std.math.pow(f64, 2.0, @floatFromInt(zoom)); 
+    const x_scale = scale / @as(f64, @floatFromInt(img_width));
+    const y_scale = scale / @as(f64, @floatFromInt(img_height));
+    const crop_step_y_scale: f64 = blk: { 
         if (crop) {
             // Div 45 by 2 as scale is 2
-            break :blk (std.math.pow(f64, 2.0, @floatFromInt(zoom)) / (@as(f64, @floatFromInt(img_height)) - @as(f64, @floatFromInt(crop_px)) / 2)); 
+            break :blk (scale / (@as(f64, @floatFromInt(img_height)) - @as(f64, @floatFromInt(crop_px)) / 2)); 
         } else {
             break :blk y_scale;
         }
     };
-    const crop_y_scale_: f64 = blk: {
+    const crop_bounds_y_scale: f64 = blk: {
         if (crop) {
-            break :blk (std.math.pow(f64, 2.0, @floatFromInt(zoom)) / (@as(f64, @floatFromInt(img_height)) + @as(f64, @floatFromInt(crop_px)) / 2)); 
+            break :blk (scale / (@as(f64, @floatFromInt(img_height)) - @as(f64, @floatFromInt(crop_px)))); 
         } else {
             break :blk y_scale;
         }
     };
     // start SW
     const start: LatLon = .{ .lat = bounds.min.lat, .lon = bounds.min.lon };
-    const start_bounds = getImageBounds(mercator_range, mercator_range, x_scale, y_scale, start, crop_y_scale_);
+    const start_bounds = getImageBounds(mercator_range, mercator_range, x_scale, y_scale, start, crop_bounds_y_scale);
     const lon_step = start_bounds.max.lon - start_bounds.min.lon;
+    var lat_step = getLatStep(mercator_range, mercator_range, crop_step_y_scale, start);
+    var final_bounds = start_bounds;
 
     var row: usize = 0;
     var lat: f64 = start.lat;
-    while (lat <= bounds.max.lat) {
+    while (lat <= bounds.max.lat + lat_step / 2) {
         var col: usize = 0;
         var lon: f64 = start.lon;
-        while (lon <= bounds.max.lon) {
+        while (lon <= bounds.max.lon + lon_step / 2) {
             const center: LatLon = .{ .lat = lat, .lon = lon };
             
             const img = try api.get(.{
@@ -305,7 +308,13 @@ fn sampleBounds(bounds: Bounds, zoom: u32, img_width: u32, img_height: u32, form
             });
             defer api.alloc.free(img);
 
-            const img_bounds = getImageBounds(mercator_range, mercator_range, x_scale, y_scale, center, crop_y_scale_);
+            const img_bounds = getImageBounds(mercator_range, mercator_range, x_scale, y_scale, center, crop_bounds_y_scale);
+            if(bounds.max.lat > final_bounds.max.lat) {
+                final_bounds.max.lat = img_bounds.max.lat;
+            }
+            if(bounds.max.lon > final_bounds.max.lon) {
+                final_bounds.max.lon = img_bounds.max.lon;
+            }
             const img_filename = try img_writer.imgFilenameFromTile(col, row, format);
             defer img_writer.freeFilename(img_filename);
             if (crop) {
@@ -326,9 +335,10 @@ fn sampleBounds(bounds: Bounds, zoom: u32, img_width: u32, img_height: u32, form
         }
         row += 1;
         // step up N
-        const step = getLatStep(mercator_range, mercator_range, crop_y_scale, .{ .lat = lat, .lon = lon });
-        lat += step;
+        lat_step = getLatStep(mercator_range, mercator_range, crop_step_y_scale, .{ .lat = lat, .lon = lon });
+        lat += lat_step;
     }
+    std.log.info("Final bounds: {d:.3} {d:.3} -> {d:.3} {d:.3}", .{ final_bounds.min.lat, final_bounds.min.lon, final_bounds.max.lat, final_bounds.max.lon });
 }
 
 

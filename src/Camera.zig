@@ -63,15 +63,19 @@ const Camera = @This();
 
 fov: f32 = 45.0 / std.math.deg_per_rad,
 aspect: f32 = 800.0 / 600.0,
-near: f32 = 0.1,
-far: f32 = 100.0,
-position: Vector3f = Vector3f{ .x = -2.0, .y = -1.0, .z = 3.0 },
+near: f32 = 0.001,
+far: f32 = 3.0,
+position: Vector3f = Vector3f{ .x = 0, .y = 0, .z = 0.05 },
 target: Vector3f = Vector3f{ .x = 0.0, .y = 0.0, .z = 0.0 },
 up: Vector3f = Vector3f{ .x = 0.0, .y = 0.0, .z = 1.0 },
+yaw: f32 = 90,
+pitch: f32 = -15,
 view: [16]f32 = undefined,
 projection: [16]f32 = undefined,
+mouse_down: bool = false,
+last_mouse_pos: MousePos = MousePos{ .x = 0.0, .y = 0.0 },
 
-const speed = 0.05;
+const speed = 0.005;
 
 fn lookAt(eye: Vector3f, center: Vector3f, up: Vector3f) [16]f32 {
     const f = center.sub(eye).normalize();
@@ -117,8 +121,9 @@ pub fn update(self: *Camera, program: u32, aspect: f32) void {
 }
 
 pub fn setupView(self: *Camera, program: u32) void {
-    _ = self;
     _ = program;
+
+    self.rotate(0, 0);
 
     // const viewLoc = gl.glGetUniformLoc(program, "view", 4);
     // gl.c.glUniformMatrix4fv(@bitCast(viewLoc), 1, gl.c.GL_FALSE, &self.view);
@@ -134,38 +139,56 @@ pub const MoveDirection = enum {
     Right,
 };
 
-pub fn move(self: *Camera, direction: MoveDirection) void {
+pub fn handleMove(self: *Camera, direction: MoveDirection) void {
     const toTarget = self.target.sub(self.position);
-    const forward = toTarget.normalize().mul(speed);
-    const right = toTarget.cross(self.up).normalize().mul(speed);
+    const right = toTarget.cross(self.up).normalize();
     switch (direction) {
-        .Forward => self.position = self.position.add(forward),
-        .Backward => self.position = self.position.sub(forward),
-        .Left => self.position = self.position.sub(right),
-        .Right => self.position = self.position.add(right),
+        .Forward => self.move(toTarget, speed),
+        .Backward => self.move(toTarget, -speed),
+        .Left => self.move(right, -speed),
+        .Right => self.move(right, speed),
     }
+}
+
+fn move(self: *Camera, direction: Vector3f, amount: f32) void {
+    const movement = direction.mul(amount);
+    self.position = self.position.add(movement);
+    self.target = self.target.add(movement);
+}
+
+pub fn rotate(self: *Camera, yawOffset: f32, pitchOffset: f32) void {
+    self.yaw += yawOffset;
+    self.pitch += pitchOffset;
+    std.debug.print("Yaw: {d}, Pitch: {d}\n", .{self.yaw, self.pitch});
+
+    // Constrain the pitch
+    if (self.pitch > 89.0) self.pitch = 89.0;
+    if (self.pitch < -89.0) self.pitch = -89.0;
+
+    const front = (Vector3f{
+        .x = @cos(self.yaw / std.math.deg_per_rad) * @cos(self.pitch / std.math.deg_per_rad),
+        .y = @cos(self.pitch / std.math.deg_per_rad) * @sin(self.yaw / std.math.deg_per_rad),
+        .z = @sin(self.pitch / std.math.deg_per_rad),
+    }).normalize();
+
+    self.target = self.position.add(front);
 }
 
 pub fn setTarget(self: *Camera, target: Vector3f) void {
     self.target = target;
 }
 
-pub const RotateDirection = enum {
-    Up,
-    Down,
-    Left,
-    Right,
-};
-//TODO better rotation
-pub fn rotate(self: *Camera, direction: RotateDirection) void {
-    const toTarget = self.target.sub(self.position);
-    const right = toTarget.cross(self.up).normalize();
-    const up = right.cross(toTarget).normalize();
-    const rotation = 0.1;
-    switch (direction) {
-        .Up => self.position = self.position.add(up.mul(rotation)),
-        .Down => self.position = self.position.sub(up.mul(rotation)),
-        .Left => self.up = self.up.add(right.mul(rotation)),
-        .Right => self.up = self.up.sub(right.mul(rotation)),
+pub fn updateMousePos(self: *Camera, pos: anytype) void {
+    if (self.mouse_down) {
+        var xOffset = pos.x - self.last_mouse_pos.x;
+        var yOffset = pos.y - self.last_mouse_pos.y;
+
+        const sensitivity = 400;
+        xOffset *= sensitivity;
+        yOffset *= sensitivity;
+
+        self.rotate(-xOffset, -yOffset);
     }
+
+    self.last_mouse_pos = .{.x = pos.x, .y = pos.y};
 }

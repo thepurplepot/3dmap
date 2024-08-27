@@ -364,8 +364,11 @@ const TextureLoader = struct {
     }
 
     pub fn calculateTexCooords(self: TextureLoader, position: LatLon) Point {
-        if(position.lon < self.bounds.min.lon or position.lon > self.bounds.max.lon or position.lat < self.bounds.min.lat or position.lat > self.bounds.max.lat) {
-            std.log.warn("Vertex out of bounds: {d}, {d}", .{position.lon, position.lat});
+        if(position.lat < self.bounds.min.lat or position.lat > self.bounds.max.lat) {
+            std.log.warn("Vertex lat. out of tex bounds: {d} - bound: {d}", .{position.lat, position.lat});
+        }
+        if(position.lon < self.bounds.min.lon or position.lon > self.bounds.max.lon) {
+            std.log.warn("Vertex lon. out of tex bounds: {d} - bound {d}", .{position.lon, position.lon});
         }
         const lon_diff = position.lon - self.bounds.min.lon;
         const lat_diff = position.lat - self.bounds.min.lat;
