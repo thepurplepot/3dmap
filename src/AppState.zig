@@ -314,7 +314,7 @@ pub fn draw(self: *Self) void {
         0.25 * math.pi,
         @as(f32, @floatFromInt(fb_width)) / @as(f32, @floatFromInt(fb_height)),
         0.01,
-        200.0,
+        100.0,
     );
     const cam_world_to_clip = zm.mul(cam_world_to_view, cam_view_to_clip);
 

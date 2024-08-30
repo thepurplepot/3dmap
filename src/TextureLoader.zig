@@ -140,7 +140,7 @@ pub fn loadTextures(self: *TextureLoader, gctx: *zgpu.GraphicsContext) !struct {
     const atlas_height = img_info.height * atlas_rows;
     var atlas = try self.alloc.alloc(u8, atalas_width * atlas_height * img_info.bytes_per_component * img_info.num_components);
     defer self.alloc.free(atlas);
-
+    std.debug.print("Atlas size: {d}x{d}", .{ atalas_width, atlas_height });
     const tex = gctx.createTexture(.{
         .usage = .{ .texture_binding = true, .copy_dst = true },
         .dimension = .tdim_2d,
