@@ -1,80 +1,75 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
-const GlfwWrapper = @import("GlfwWrapper.zig");
-const GeoTiffParser = @import("GeoTiffParser.zig");
-const Ui = @import("Ui.zig");
-const Mesh = @import("Mesh.zig");
-const gl = @import("opengl_bindings.zig");
-const Camera = @import("Camera.zig");
-
-const std_options: std.Options = .{
-    .log_level = .debug,
-};
+const zglfw = @import("zglfw");
+const AppState = @import("AppState.zig");
+const zgui = @import("zgui");
+const zgpu = @import("zgpu");
+const wgpu = zgpu.wgpu;
 
 pub fn main() !void {
+    try zglfw.init();
+    defer zglfw.terminate();
+
+    zglfw.windowHintTyped(.client_api, .no_api);
+
+    const window = try zglfw.Window.create(800, 600, "3D Map", null);
+    defer window.destroy();
+    window.setSizeLimits(400, 400, -1, -1);
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const alloc = gpa.allocator();
 
-    const args = try std.process.argsAlloc(alloc);
-    defer std.process.argsFree(alloc, args);
+    const allocator = gpa.allocator();
 
-    //TODO: Add more options
-    if (args.len < 2) {
-        std.debug.print("Usage: {s} <filename>\n", .{args[0]});
-        return error.InvalidArgs;
-    }
+    var app = try AppState.create(allocator, window, .{ .sw = .{ .lon = -3.2, .lat = 54.4 }, .ne = .{ .lon = -2.9, .lat = 54.7 } }, "res/geo.tif");
+    defer app.destroy(allocator);
 
-    var parser = try GeoTiffParser.init(alloc, args[1]);
-    defer parser.deinit();
+    const scale_factor = scale_factor: {
+        const scale = window.getContentScale();
+        break :scale_factor @max(scale[0], scale[1]);
+    };
 
-    const map = try parser.fullSample();
-    defer alloc.free(map.elevations);
-    defer alloc.free(map.positions);
+    zgui.init(allocator);
+    defer zgui.deinit();
 
-    var glfw = try GlfwWrapper.init();
-    defer glfw.deinit();
+    _ = zgui.io.addFontFromFile("res/Roboto-Medium.ttf", std.math.floor(16.0 * scale_factor));
 
-    // GlfwWrapper.enableGLDebug();
+    zgui.backend.init(
+        window,
+        app.gctx.device,
+        @intFromEnum(zgpu.GraphicsContext.swapchain_format),
+        @intFromEnum(wgpu.TextureFormat.undef),
+    );
+    defer zgui.backend.deinit();
 
-    var ui = try Ui.init(glfw.window);
-    defer ui.deinit();
+    zgui.getStyle().scaleAllSizes(scale_factor);
 
-    const bounds: Mesh.Bounds = .{.min = .{.lon = -3.5, .lat = 54.1}, .max = .{.lon = -2.5, .lat = 54.7}}; 
-    var mesh = try Mesh.meshFromElevations(alloc, bounds, map.elevations, map.positions);
-    defer mesh.deinit(alloc);
+    // var frame_timer = try std.time.Timer.start();
+    // const frame_rate_target = 60;
 
-    const vs_source = @embedFile("shaders/vertex.glsl");
-    const fs_source = @embedFile("shaders/fragment.glsl");
-    const program = try GlfwWrapper.compileLinkProgram(glfw.log, vs_source, vs_source.len, fs_source, fs_source.len);
+    while (!window.shouldClose() and window.getKey(.escape) != .press) {
+        // {
+        //     // spin loop for frame limiter
+        //     const target_ns = @divTrunc(std.time.ns_per_s, frame_rate_target);
+        //     while (frame_timer.read() < target_ns) {
+        //         std.atomic.spinLoopHint();
+        //     }
+        //     frame_timer.reset();
+        // }
 
-    var cam = Camera{};
-    cam.setupView(program);
+        zglfw.pollEvents();
 
-    var width: c_int = 0;
-    var height: c_int = 0;
-    while (gl.c.glfwWindowShouldClose(glfw.window) == 0) {
-        gl.c.glfwPollEvents();
-        gl.c.glClearColor(0.2, 0.3, 0.3, 1.0);
-        glfw.updateFpsCounter();
-        gl.glClear(gl.c.GL_COLOR_BUFFER_BIT | gl.c.GL_DEPTH_BUFFER_BIT);
+        app.update();
+        app.draw();
 
-        gl.c.glfwGetWindowSize(glfw.window, &width, &height);
-        //gl.c.glViewport(0, 0, width, height); //Giving half window size?
-        const aspect = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
+        if (app.gctx.present() == .swap_chain_resized) {
+            // Release old depth texture.
+            app.gctx.releaseResource(app.depth_texv);
+            app.gctx.destroyResource(app.depth_tex);
 
-        cam.update(program, aspect);
-        Mesh.setupLighting(program);
-        mesh.draw(program);
-
-        const ui_actions = ui.render(width, height);
-
-        try Ui.handleUiActions(ui_actions, &mesh);
-
-        if (!ui_actions.consumed_mouse_input) {
-            try GlfwWrapper.handleGlfwActions(alloc, &glfw, &cam);
+            // Create a new depth texture to match the new window size.
+            const depth = AppState.createDepthTexture(app.gctx);
+            app.depth_tex = depth.tex;
+            app.depth_texv = depth.texv;
         }
-
-        gl.c.glfwSwapBuffers(glfw.window);
     }
 }

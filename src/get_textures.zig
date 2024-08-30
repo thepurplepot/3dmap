@@ -5,7 +5,7 @@ const Client = std.http.Client;
 
 // const Hash = std.crypto.hash.Sha1; // TODO For signing api requests
 
-const secret_file = @embedFile("secret.json");
+const secret_file = @embedFile("../secret.json");
 
 const Secret = struct {
     api_key: []const u8,
@@ -15,22 +15,22 @@ fn readSecret(alloc: Allocator) !std.json.Parsed(Secret) {
     return std.json.parseFromSlice(Secret, alloc, secret_file, .{});
 }
 
-const LatLon = struct {
-    lat: f64,
-    lon: f64,
+const Point = struct {
+    x: f32,
+    y: f32,
 };
 
-const Point = struct {
-    x: f64,
-    y: f64,
+const LatLon = struct {
+    lat: f32,
+    lon: f32,
 };
 
 const Bounds = struct {
-    min: LatLon, // SW
-    max: LatLon, // NE
+    sw: LatLon,
+    ne: LatLon,
 };
 
-pub const MetaData = struct {
+const MetaData = struct {
     filename: [:0]const u8,
     center: LatLon,
     bounds: Bounds,
@@ -219,25 +219,25 @@ const Api = struct {
 };
 
 fn latLonToPoint(map_width: u32, map_height: u32, lat_lon: LatLon) Point {
-    const x = (lat_lon.lon + 180.0) * @as(f64, @floatFromInt(map_width)) / 360.0;
-    const y = (1.0 - std.math.log(f64, std.math.e, std.math.tan(lat_lon.lat / std.math.deg_per_rad) + 1.0 / std.math.cos(lat_lon.lat / std.math.deg_per_rad)) / std.math.pi) * @as(f64, @floatFromInt(map_height)) / 2.0;
+    const x = (lat_lon.lon + 180.0) * @as(f32, @floatFromInt(map_width)) / 360.0;
+    const y = (1.0 - std.math.log(f32, std.math.e, std.math.tan(lat_lon.lat / std.math.deg_per_rad) + 1.0 / std.math.cos(lat_lon.lat / std.math.deg_per_rad)) / std.math.pi) * @as(f32, @floatFromInt(map_height)) / 2.0;
 
     return .{ .x = x, .y = y };
 }
 
 fn pointToLatLon(map_width: u32, map_height: u32, point: Point) LatLon {
-    const lon = point.x / @as(f64, @floatFromInt(map_width)) * 360.0 - 180.0;
-    const n = std.math.pi - 2.0 * std.math.pi * point.y / @as(f64, @floatFromInt(map_height));
+    const lon = point.x / @as(f32, @floatFromInt(map_width)) * 360.0 - 180.0;
+    const n = std.math.pi - 2.0 * std.math.pi * point.y / @as(f32, @floatFromInt(map_height));
     const lat = std.math.deg_per_rad * std.math.atan(0.5 * (std.math.exp(n) - std.math.exp(-n)));
 
     return .{ .lat = lat, .lon = lon };
 }
 
-fn getImageBounds(map_width: u32, map_height: u32, x_scale: f64, y_scale: f64, center: LatLon, crop_y_scale: ?f64) Bounds {
+fn getImageBounds(map_width: u32, map_height: u32, x_scale: f32, y_scale: f32, center: LatLon, crop_y_scale: ?f32) Bounds {
     const center_point = latLonToPoint(map_width, map_height, center);
 
     const sw_x = center_point.x - 1 / (2.0 * x_scale);
-    var sw_y: f64 = undefined;
+    var sw_y: f32 = undefined;
     if (crop_y_scale) |s| {
         sw_y = center_point.y + 1 / (2.0 * s);
     } else {
@@ -249,10 +249,10 @@ fn getImageBounds(map_width: u32, map_height: u32, x_scale: f64, y_scale: f64, c
     const ne_y = center_point.y - 1 / (2.0 * y_scale);
     const ne = pointToLatLon(map_width, map_height, .{ .x = ne_x, .y = ne_y });
 
-    return .{ .min = sw, .max = ne };
+    return .{ .sw = sw, .ne = ne };
 }
 
-fn getLatStep(map_width: u32, map_height: u32, y_scale: f64, center: LatLon) f64 {
+fn getLatStep(map_width: u32, map_height: u32, y_scale: f32, center: LatLon) f32 {
     const center_point = latLonToPoint(map_width, map_height, center);
     
     const step_y = center_point.y - 1 / y_scale;
@@ -265,37 +265,37 @@ fn sampleBounds(bounds: Bounds, zoom: u32, img_width: u32, img_height: u32, form
     const mercator_range = 256.0;
     const crop_px = 45; // crop 45px from the bottom (Google watermark)
 
-    const scale = std.math.pow(f64, 2.0, @floatFromInt(zoom)); 
-    const x_scale = scale / @as(f64, @floatFromInt(img_width));
-    const y_scale = scale / @as(f64, @floatFromInt(img_height));
-    const crop_step_y_scale: f64 = blk: { 
+    const scale = std.math.pow(f32, 2.0, @floatFromInt(zoom)); 
+    const x_scale = scale / @as(f32, @floatFromInt(img_width));
+    const y_scale = scale / @as(f32, @floatFromInt(img_height));
+    const crop_step_y_scale: f32 = blk: { 
         if (crop) {
             // Div 45 by 2 as scale is 2
-            break :blk (scale / (@as(f64, @floatFromInt(img_height)) - @as(f64, @floatFromInt(crop_px)) / 2)); 
+            break :blk (scale / (@as(f32, @floatFromInt(img_height)) - @as(f32, @floatFromInt(crop_px)) / 2)); 
         } else {
             break :blk y_scale;
         }
     };
-    const crop_bounds_y_scale: f64 = blk: {
+    const crop_bounds_y_scale: f32 = blk: {
         if (crop) {
-            break :blk (scale / (@as(f64, @floatFromInt(img_height)) - @as(f64, @floatFromInt(crop_px)))); 
+            break :blk (scale / (@as(f32, @floatFromInt(img_height)) - @as(f32, @floatFromInt(crop_px)))); 
         } else {
             break :blk y_scale;
         }
     };
     // start SW
-    const start: LatLon = .{ .lat = bounds.min.lat, .lon = bounds.min.lon };
+    const start: LatLon = .{ .lat = bounds.sw.lat, .lon = bounds.sw.lon };
     const start_bounds = getImageBounds(mercator_range, mercator_range, x_scale, y_scale, start, crop_bounds_y_scale);
-    const lon_step = start_bounds.max.lon - start_bounds.min.lon;
+    const lon_step = start_bounds.ne.lon - start_bounds.sw.lon;
     var lat_step = getLatStep(mercator_range, mercator_range, crop_step_y_scale, start);
     var final_bounds = start_bounds;
 
     var row: usize = 0;
-    var lat: f64 = start.lat;
-    while (lat <= bounds.max.lat + lat_step / 2) {
+    var lat: f32 = start.lat;
+    while (lat <= bounds.ne.lat + lat_step / 2) {
         var col: usize = 0;
-        var lon: f64 = start.lon;
-        while (lon <= bounds.max.lon + lon_step / 2) {
+        var lon: f32 = start.lon;
+        while (lon <= bounds.ne.lon + lon_step / 2) {
             const center: LatLon = .{ .lat = lat, .lon = lon };
             
             const img = try api.get(.{
@@ -309,11 +309,11 @@ fn sampleBounds(bounds: Bounds, zoom: u32, img_width: u32, img_height: u32, form
             defer api.alloc.free(img);
 
             const img_bounds = getImageBounds(mercator_range, mercator_range, x_scale, y_scale, center, crop_bounds_y_scale);
-            if(bounds.max.lat > final_bounds.max.lat) {
-                final_bounds.max.lat = img_bounds.max.lat;
+            if(bounds.ne.lat > final_bounds.ne.lat) {
+                final_bounds.ne.lat = img_bounds.ne.lat;
             }
-            if(bounds.max.lon > final_bounds.max.lon) {
-                final_bounds.max.lon = img_bounds.max.lon;
+            if(bounds.ne.lon > final_bounds.ne.lon) {
+                final_bounds.ne.lon = img_bounds.ne.lon;
             }
             const img_filename = try img_writer.imgFilenameFromTile(col, row, format);
             defer img_writer.freeFilename(img_filename);
@@ -338,7 +338,7 @@ fn sampleBounds(bounds: Bounds, zoom: u32, img_width: u32, img_height: u32, form
         lat_step = getLatStep(mercator_range, mercator_range, crop_step_y_scale, .{ .lat = lat, .lon = lon });
         lat += lat_step;
     }
-    std.log.info("Final bounds: {d:.3} {d:.3} -> {d:.3} {d:.3}", .{ final_bounds.min.lat, final_bounds.min.lon, final_bounds.max.lat, final_bounds.max.lon });
+    std.log.info("Final bounds: ({d:.3} S, {d:.3} W) -> ({d:.3} N, {d:.3} E)", .{ final_bounds.sw.lat, final_bounds.sw.lon, final_bounds.ne.lat, final_bounds.ne.lon });
 }
 
 
@@ -449,10 +449,10 @@ const Args = struct {
     fn parseBounds(bounds: []const u8) !Bounds {
         var it = std.mem.tokenizeAny(u8, bounds, " ,");
 
-        var lat_lon: [4]f64 = undefined;
+        var lat_lon: [4]f32 = undefined;
         var i: usize = 0;
         while (it.next()) |token| {
-            const parsed = try std.fmt.parseFloat(f64, token);
+            const parsed = try std.fmt.parseFloat(f32, token);
             lat_lon[i] = parsed;
             i += 1;
         }
@@ -462,8 +462,8 @@ const Args = struct {
         }
 
         return .{
-            .min = .{ .lat = lat_lon[0], .lon = lat_lon[1] },
-            .max = .{ .lat = lat_lon[2], .lon = lat_lon[3] },
+            .sw = .{ .lat = lat_lon[0], .lon = lat_lon[1] },
+            .ne = .{ .lat = lat_lon[2], .lon = lat_lon[3] },
         };
     }
 };
