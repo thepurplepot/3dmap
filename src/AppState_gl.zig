@@ -1,33 +1,28 @@
 const std = @import("std");
 const math = std.math;
 const zglfw = @import("zglfw");
-const zgpu = @import("zgpu");
-const wgpu = zgpu.wgpu;
 const zgui = @import("zgui");
 const zm = @import("zmath");
+const zopengl = @import("zopengl");
+const gl = zopengl.bindings;
 const Allocator = std.mem.Allocator;
 const MeshGenerator = @import("mesh_generator.zig");
 const Bounds = MeshGenerator.Bounds;
 const TextureLoader = @import("TextureLoader.zig");
 
-const vs = @embedFile("shaders/vertex.wgsl");
-const fs = @embedFile("shaders/fragment.wgsl");
+const vs = @embedFile("shaders/vertex.glsl");
+const fs = @embedFile("shaders/fragment.glsl");
+
+//What neds to be in the app state and what needs to be seperated into a rendere
 
 window: *zglfw.Window,
-gctx: *zgpu.GraphicsContext,
 
-render_pipe: zgpu.RenderPipelineHandle = .{},
-frame_bg: zgpu.BindGroupHandle,
-draw_bg: zgpu.BindGroupHandle,
+//TODO uniforms
 
-vertex_buf: zgpu.BufferHandle,
-index_buf: zgpu.BufferHandle,
+vertex_buf: gl.Uint,
+index_buf: gl.Uint,
 
-depth_tex: zgpu.TextureHandle,
-depth_texv: zgpu.TextureViewHandle,
-tex: zgpu.TextureHandle,
-texv: zgpu.TextureViewHandle,
-sampler: zgpu.SamplerHandle,
+tex: gl.Enum,
 
 camera: struct {
     position: [3]f32 = .{ 0.0, 5.0, 3.0 },
@@ -36,14 +31,13 @@ camera: struct {
     yaw: f32 = 0.0,
 } = .{},
 
-// TODO capture mouse
 mouse: struct {
     cursor_pos: [2]f64 = .{ 0.0, 0.0 },
     left_button: bool = false,
 } = .{},
 
 options: struct {
-    texture: bool = false,
+    texture: bool = true,
     elevation_scale: f32 = 1.0,
 } = .{},
 
@@ -64,7 +58,6 @@ const Vertex = struct {
     position: [3]f32,
     normal: [3]f32,
     uv: [2]f32,
-    tex_index: u32,
 };
 
 pub fn create(alloc: Allocator, window: *zglfw.Window, bounds: Bounds, geotiff: []const u8) !*Self {
@@ -103,7 +96,6 @@ pub fn create(alloc: Allocator, window: *zglfw.Window, bounds: Bounds, geotiff: 
     var textureLoader = try TextureLoader.create(arena, "output/", "output/meta_data.json");
     defer textureLoader.deinit();
     const tex = try textureLoader.loadTextures(gctx);
-    std.debug.print("Loaded textures\n", .{});
     const sampler = gctx.createSampler(.{ .mag_filter = .linear, .min_filter = .linear });
     var mesh_uvs = std.ArrayList([2]f32).init(arena);
     try mesh_uvs.resize(mesh_positions.items.len);
@@ -117,7 +109,7 @@ pub fn create(alloc: Allocator, window: *zglfw.Window, bounds: Bounds, geotiff: 
 
     const draw_bgl = gctx.createBindGroupLayout(&.{
         zgpu.bufferEntry(0, .{ .vertex = true, .fragment = true }, .uniform, true, 0),
-        zgpu.textureEntry(1, .{ .fragment = true }, .float, .tvdim_2d_array, false),
+        zgpu.textureEntry(1, .{ .fragment = true }, .float, .tvdim_2d, false),
         zgpu.samplerEntry(2, .{ .fragment = true }, .filtering),
     });
     defer gctx.releaseResource(draw_bgl);
@@ -161,7 +153,6 @@ pub fn create(alloc: Allocator, window: *zglfw.Window, bounds: Bounds, geotiff: 
             vertex_data[i].position = mesh_positions.items[i];
             vertex_data[i].normal = mesh_normals.items[i];
             vertex_data[i].uv = mesh_uvs.items[i];
-            vertex_data[i].tex_index = 0;
         }
         gctx.queue.writeBuffer(gctx.lookupResource(vertex_buf).?, 0, Vertex, vertex_data);
     }
@@ -203,7 +194,6 @@ pub fn create(alloc: Allocator, window: *zglfw.Window, bounds: Bounds, geotiff: 
             .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
             .{ .format = .float32x3, .offset = @offsetOf(Vertex, "normal"), .shader_location = 1 },
             .{ .format = .float32x2, .offset = @offsetOf(Vertex, "uv"), .shader_location = 2 },
-            .{ .format = .uint32, .offset = @offsetOf(Vertex, "tex_index"), .shader_location = 3 },
         },
         .{ .topology = .triangle_list },
         zgpu.GraphicsContext.swapchain_format,

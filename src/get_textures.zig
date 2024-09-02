@@ -5,7 +5,7 @@ const Client = std.http.Client;
 
 // const Hash = std.crypto.hash.Sha1; // TODO For signing api requests
 
-const secret_file = @embedFile("../secret.json");
+const secret_file = @embedFile("secret.json");
 
 const Secret = struct {
     api_key: []const u8,

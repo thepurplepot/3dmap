@@ -11,7 +11,7 @@ struct FrameUniforms {
 }
 @group(0) @binding(0) var<uniform> frame_uniforms: FrameUniforms;
 
-@group(1) @binding(1) var image: texture_2d<f32>;
+@group(1) @binding(1) var image: texture_2d_array<f32>;
 @group(1) @binding(2) var image_sampler: sampler;
 
 const pi = 3.1415926;
@@ -44,6 +44,7 @@ fn fresnelSchlick(h_dot_v: f32, f0: vec3<f32>) -> vec3<f32> {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) @interpolate(flat) tex_index: u32,
 ) -> @location(0) vec4<f32> {
     let v = normalize(frame_uniforms.camera_position - position);
     let n = normalize(normal);
@@ -106,8 +107,8 @@ fn fresnelSchlick(h_dot_v: f32, f0: vec3<f32>) -> vec3<f32> {
     color = color / (color + 1.0);
     color = pow(color, vec3(1.0 / 2.2));
 
-    if(draw_uniforms.texture == 0u) {
-        color = color * textureSample(image, image_sampler, uv).xyz;
+    if(draw_uniforms.texture == 1u) {
+        color = color * textureSample(image, image_sampler, uv, tex_index).xyz;
     }
 
     return vec4(color, 1.0);

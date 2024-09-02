@@ -5,13 +5,17 @@ const zgui = @import("zgui");
 const zgpu = @import("zgpu");
 const wgpu = zgpu.wgpu;
 
+pub const std_options = std.Options{
+    .log_level = .info,
+};
+
 pub fn main() !void {
     try zglfw.init();
     defer zglfw.terminate();
 
     zglfw.windowHintTyped(.client_api, .no_api);
 
-    const window = try zglfw.Window.create(800, 600, "3D Map", null);
+    const window = try zglfw.Window.create(800, 500, "3D Map", null);
     defer window.destroy();
     window.setSizeLimits(400, 400, -1, -1);
 
@@ -20,7 +24,7 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    var app = try AppState.create(allocator, window, .{ .sw = .{ .lon = -3.2, .lat = 54.4 }, .ne = .{ .lon = -2.9, .lat = 54.7 } }, "res/geo.tif");
+    var app = try AppState.create(allocator, window, .{ .sw = .{ .lon = -3.3, .lat = 54.4 }, .ne = .{ .lon = -2.8, .lat = 54.7 } }, "res/geo.tif");
     defer app.destroy(allocator);
 
     const scale_factor = scale_factor: {

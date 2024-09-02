@@ -71,6 +71,7 @@ pub fn calculateTexCooords(self: TextureLoader, bounds: Bounds, mesh_positions: 
     for (mesh_positions.items, 0..) |position, i| {
         const v = lat_offset + ((position[0] / 1) + 0.5) * lat_scale;
         const u = lon_offset + ((position[2] / aspect) + 0.5) * lon_scale;
+
         mesh_uvs.items[i] = .{ u, v };
     }
 }
@@ -135,26 +136,27 @@ pub fn loadTextures(self: *TextureLoader, gctx: *zgpu.GraphicsContext) !struct {
     try self.findMaxRowCol(&atlas_cols, &atlas_rows);
     atlas_cols += 1;
     atlas_rows += 1;
+    const layers: u32 = @intCast(self.meta_data.value.len);
 
-    const atalas_width = img_info.width * atlas_cols;
-    const atlas_height = img_info.height * atlas_rows;
-    var atlas = try self.alloc.alloc(u8, atalas_width * atlas_height * img_info.bytes_per_component * img_info.num_components);
-    defer self.alloc.free(atlas);
-    std.debug.print("Atlas size: {d}x{d}", .{ atalas_width, atlas_height });
+    // const atalas_width = img_info.width * atlas_cols;
+    // const atlas_height = img_info.height * atlas_rows;
+    // var atlas = try self.alloc.alloc(u8, atalas_width * atlas_height * img_info.bytes_per_component * img_info.num_components);
+    // defer self.alloc.free(atlas);
+    // std.debug.print("Atlas size: {d}x{d}\n", .{ atalas_width, atlas_height });
     const tex = gctx.createTexture(.{
         .usage = .{ .texture_binding = true, .copy_dst = true },
         .dimension = .tdim_2d,
         .size = .{
-            .width = atalas_width,
-            .height = atlas_height,
-            .depth_or_array_layers = 1,
+            .width = img_info.width,
+            .height = img_info.height,
+            .depth_or_array_layers = layers,
         },
         .format = zgpu.imageInfoToTextureFormat(img_info.num_components, img_info.bytes_per_component, img_info.is_hdr),
     });
 
-    const texv = gctx.createTextureView(tex, .{});
+    const texv = gctx.createTextureView(tex, .{ .dimension = .tvdim_2d_array });
 
-    for (self.meta_data.value) |meta| {
+    for (self.meta_data.value, 0..) |meta, i| {
         const img_file: [:0]const u8 = try std.fs.path.joinZ(self.alloc, &.{ self.img_dir, meta.filename });
         defer self.alloc.free(img_file);
         var img = try zstbi.Image.loadFromFile(img_file, 4); // rgba
@@ -163,25 +165,36 @@ pub fn loadTextures(self: *TextureLoader, gctx: *zgpu.GraphicsContext) !struct {
         var x_offset: u32 = 0;
         var y_offset: u32 = 0;
         try parseFilename(meta.filename, &x_offset, &y_offset);
+
         // Flip as we are loading texture from NW but images are indexed from SW
-        y_offset = atlas_rows - y_offset - 1;
-        x_offset *= img_info.width;
-        y_offset *= img_info.height;
-        const img_offset = x_offset * img_info.bytes_per_component * img_info.num_components + y_offset * img.bytes_per_row * atlas_cols;
-        for (0..img.height) |row| {
-            const row_offset = img_offset + row * atalas_width * img_info.bytes_per_component * img_info.num_components;
-            const row_data = img.data[row * img.bytes_per_row .. (row + 1) * img.bytes_per_row];
-            @memcpy(atlas[row_offset .. row_offset + img.bytes_per_row], row_data);
-        }
+        // y_offset = atlas_rows - y_offset - 1;
+        // x_offset *= img_info.width;
+        // y_offset *= img_info.height;
+        // const img_offset = x_offset * img_info.bytes_per_component * img_info.num_components + y_offset * img.bytes_per_row * atlas_cols;
+        // for (0..img.height) |row| {
+        //     const row_offset = img_offset + row * atalas_width * img_info.bytes_per_component * img_info.num_components;
+        //     const row_data = img.data[row * img.bytes_per_row .. (row + 1) * img.bytes_per_row];
+        //     @memcpy(atlas[row_offset .. row_offset + img.bytes_per_row], row_data);
+        // }
+        gctx.queue.writeTexture(
+            .{ .texture = gctx.lookupResource(tex).?, .origin = .{.z = @intCast(i)} },
+            .{ .bytes_per_row = img.bytes_per_row, .rows_per_image = img.height },
+            .{ .width = img.width, .height = img.height },
+            u8,
+            img.data,
+        );
+    gctx.queue.submit(&.{});
+
+        std.debug.print("Texture {d} loaded\n", .{ i });
     }
 
-    gctx.queue.writeTexture(
-        .{ .texture = gctx.lookupResource(tex).? },
-        .{ .bytes_per_row = atalas_width * img_info.bytes_per_component * img_info.num_components, .rows_per_image = atlas_height },
-        .{ .width = atalas_width, .height = atlas_height },
-        u8,
-        atlas,
-    );
+    // gctx.queue.writeTexture(
+    //     .{ .texture = gctx.lookupResource(tex).? },
+    //     .{ .bytes_per_row = atalas_width * img_info.bytes_per_component * img_info.num_components, .rows_per_image = atlas_height },
+    //     .{ .width = atalas_width, .height = atlas_height },
+    //     u8,
+    //     atlas,
+    // );
 
     return .{ .tex = tex, .texv = texv };
 }
