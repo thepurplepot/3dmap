@@ -97,7 +97,7 @@ pub fn create(alloc: Allocator, window: *zglfw.Window, bounds: Bounds, geotiff: 
     );
     errdefer gctx.destroy(alloc);
 
-    // Textures WIP
+    // Textures WIPd
     var textureLoader = try TextureLoader.create(arena, "output/", "output/meta_data.json");
     defer textureLoader.deinit();
     const tex = try textureLoader.loadTextures(gctx);
