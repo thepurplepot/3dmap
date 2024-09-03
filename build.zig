@@ -64,9 +64,15 @@ const Builder = struct {
     }
 
     fn buildApp(self: *Builder) void {
+        const root_path = blk: {
+            switch(self.backend) {
+                .glfw_opengl3 => break :blk "src/main_gl.zig",
+                .glfw_wgpu => break :blk "src/main_wgpu.zig",
+            }
+        };
         const exe = self.b.addExecutable(.{
             .name = "3dmap",
-            .root_source_file = self.b.path("src/main_gl.zig"),
+            .root_source_file = self.b.path(root_path),
             .target = self.target,
             .optimize = self.opt,
         });

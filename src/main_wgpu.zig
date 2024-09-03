@@ -43,7 +43,7 @@ pub fn main() !void {
 
     zgui.backend.init(
         window,
-        app.gctx.device,
+        renderer.gctx.device,
         @intFromEnum(zgpu.GraphicsContext.swapchain_format),
         @intFromEnum(wgpu.TextureFormat.undef),
     );
@@ -69,15 +69,15 @@ pub fn main() !void {
         app.update();
         renderer.draw(app);
 
-        if (app.gctx.present() == .swap_chain_resized) {
+        if (renderer.gctx.present() == .swap_chain_resized) {
             // Release old depth texture.
-            app.gctx.releaseResource(app.depth_texv);
-            app.gctx.destroyResource(app.depth_tex);
+            renderer.gctx.releaseResource(renderer.depth_texv);
+            renderer.gctx.destroyResource(renderer.depth_tex);
 
             // Create a new depth texture to match the new window size.
-            const depth = AppState.createDepthTexture(app.gctx);
-            app.depth_tex = depth.tex;
-            app.depth_texv = depth.texv;
+            const depth = Renderer.createDepthTexture(renderer.gctx);
+            renderer.depth_tex = depth.tex;
+            renderer.depth_texv = depth.texv;
         }
     }
 }

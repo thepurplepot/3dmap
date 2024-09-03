@@ -208,7 +208,7 @@ pub fn destroy(self: *Self, alloc: Allocator) void {
     alloc.destroy(self);
 }
 
-pub fn draw(self: *Self, state: AppState) void {
+pub fn draw(self: *Self, state: *AppState) void {
     const gctx = self.gctx;
     state.size.width = gctx.swapchain_descriptor.width;
     state.size.height = gctx.swapchain_descriptor.height;

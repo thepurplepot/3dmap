@@ -7,6 +7,7 @@ pub const std_options = std.Options{
     .log_level = .info,
 };
 
+//TODO handle arguments for bounds, img_dir, geotiff, etc.
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();

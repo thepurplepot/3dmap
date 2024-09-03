@@ -5,7 +5,7 @@ const zgui = @import("zgui");
 const zm = @import("zmath");
 const Allocator = std.mem.Allocator;
 
-window: *zglfw.Window,
+window: *zglfw.Window, //TODO remove window (Renderer resposibility)
 
 size: struct {
     width: u32 = 800,
