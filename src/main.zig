@@ -66,6 +66,7 @@ pub fn main() !void {
         app.draw();
 
         if (app.gctx.present() == .swap_chain_resized) {
+            // std.debug.print("Swap chain resized\n", .{});
             // Release old depth texture.
             app.gctx.releaseResource(app.depth_texv);
             app.gctx.destroyResource(app.depth_tex);

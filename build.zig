@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) !void {
     const opt = b.standardOptimizeOption(.{});
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/main_gl.zig"),
         .target = target,
         .optimize = opt,
     });
@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) !void {
 
     const zgui = b.dependency("zgui", .{
         .target = target,
-        .backend = .glfw_wgpu,
+        .backend = .glfw_opengl3, //.glfw_wgpu,
     });
     exe.root_module.addImport("zgui", zgui.module("root"));
     exe.linkLibrary(zgui.artifact("imgui"));
@@ -46,8 +46,6 @@ pub fn build(b: *std.Build) !void {
     exe.linkLibrary(zstbi.artifact("zstbi"));
 
     exe.linkSystemLibrary("gdal");
-
-    exe.want_lto = false;
 
     b.installArtifact(exe);
 

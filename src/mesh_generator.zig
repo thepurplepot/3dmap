@@ -49,6 +49,19 @@ pub fn boundsAspect(bounds: Bounds) f32 {
     return x / y;
 }
 
+// pub fn toMSpace(bounds: Bounds, lon: f32, lat: f32) [2]f32 {
+//     const lon_diff = lon - bounds.sw.lon;
+//     const lat_diff = lat - bounds.sw.lat;
+
+//     // Convert longitude and latitude differences to meters
+//     const earth_radius = 6371000.0;
+//     const x = lon_diff * (std.math.cos(bounds.sw.lat * std.math.pi / 180.0) * std.math.pi / 180.0) * earth_radius;
+//     const y = lat_diff * (std.math.pi / 180.0) * earth_radius;
+
+//     return .{x, y};
+// }
+
+//TODO do this in M space
 fn generateVertices(mesh_indices: *std.ArrayList(IndexType), mesh_positions: *std.ArrayList([3]f32), width: usize, height: usize, elevations: []f32, aspect: f32, m_scale: f32) !void {
     for (0..height) |y| {
         for (0..width) |x| {

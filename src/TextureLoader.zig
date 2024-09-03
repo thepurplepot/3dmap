@@ -5,6 +5,8 @@ const LatLon = @import("GeoTiffParser.zig").LatLon;
 const MeshGenerator = @import("mesh_generator.zig");
 const Allocator = std.mem.Allocator;
 const zgpu = @import("zgpu");
+const zopengl = @import("zopengl");
+const gl = zopengl.bindings;
 
 alloc: Allocator,
 meta_data: std.json.Parsed(MetaDataList),
@@ -61,7 +63,27 @@ pub fn parseMetaData(alloc: Allocator, path: []const u8) !std.json.Parsed(MetaDa
     return std.json.parseFromSlice(MetaDataList, alloc, s, .{});
 }
 
-pub fn calculateTexCooords(self: TextureLoader, bounds: Bounds, mesh_positions: std.ArrayList([3]f32), mesh_uvs: *std.ArrayList([2]f32)) !void {
+pub fn calculateTexCooords(self: TextureLoader, bounds: Bounds, mesh_positions: std.ArrayList([3]f32), mesh_uvs: *std.ArrayList([2]f32), mesh_tex_index: *std.ArrayList(u32)) !void {
+    // const lon_scale = (bounds.ne.lon - bounds.sw.lon) / (self.bounds.ne.lon - self.bounds.sw.lon);
+    // const lon_offset = (bounds.sw.lon - self.bounds.sw.lon) / (self.bounds.ne.lon - self.bounds.sw.lon);
+    // const lat_scale = (bounds.ne.lat - bounds.sw.lat) / (self.bounds.ne.lat - self.bounds.sw.lat);
+    // const lat_offset = (self.bounds.ne.lat - bounds.ne.lat) / (self.bounds.ne.lat - self.bounds.sw.lat);
+    const aspect = MeshGenerator.boundsAspect(bounds);
+
+    for (mesh_positions.items, 0..) |position, i| {
+        const lon = (position[2] / aspect + 0.5) * (bounds.ne.lon - bounds.sw.lon) + bounds.sw.lon;
+        const lat = (position[0] + 0.5) * (bounds.ne.lat - bounds.sw.lat) + bounds.sw.lat;
+        const tex_index = try self.getIndex(lon, lat);
+        // const v = lat_offset + ((position[0] / 1) + 0.5) * lat_scale;
+        // const u = lon_offset + ((position[2] / aspect) + 0.5) * lon_scale;
+        const v = (lat - self.meta_data.value[tex_index].bounds.sw.lat) / (self.meta_data.value[tex_index].bounds.ne.lat - self.meta_data.value[tex_index].bounds.sw.lat);
+        const u = (lon - self.meta_data.value[tex_index].bounds.sw.lon) / (self.meta_data.value[tex_index].bounds.ne.lon - self.meta_data.value[tex_index].bounds.sw.lon);
+        mesh_uvs.items[i] = .{ u, v };
+        mesh_tex_index.items[i] = tex_index;
+    }
+}
+
+pub fn calculateTexCooordsGl(self: TextureLoader, bounds: Bounds, mesh_positions: std.ArrayList([3]f32), mesh_uvs: *std.ArrayList([2]f32)) void {
     const lon_scale = (bounds.ne.lon - bounds.sw.lon) / (self.bounds.ne.lon - self.bounds.sw.lon);
     const lon_offset = (bounds.sw.lon - self.bounds.sw.lon) / (self.bounds.ne.lon - self.bounds.sw.lon);
     const lat_scale = (bounds.ne.lat - bounds.sw.lat) / (self.bounds.ne.lat - self.bounds.sw.lat);
@@ -74,6 +96,15 @@ pub fn calculateTexCooords(self: TextureLoader, bounds: Bounds, mesh_positions: 
 
         mesh_uvs.items[i] = .{ u, v };
     }
+}
+
+fn getIndex(self: TextureLoader, lon: f64, lat: f64) !u32 {
+    for (self.meta_data.value, 0..) |meta, i| {
+        if(meta.bounds.sw.lon <= lon and lon <= meta.bounds.ne.lon and meta.bounds.sw.lat <= lat and lat <= meta.bounds.ne.lat) {
+            return @intCast(i);
+        }
+    }
+    return error.OutOfBounds;
 }
 
 fn parseFilename(filename: []const u8, col: *u32, row: *u32) !void {
@@ -131,18 +162,8 @@ pub fn loadTextures(self: *TextureLoader, gctx: *zgpu.GraphicsContext) !struct {
         };
     };
 
-    var atlas_cols: u32 = 0;
-    var atlas_rows: u32 = 0;
-    try self.findMaxRowCol(&atlas_cols, &atlas_rows);
-    atlas_cols += 1;
-    atlas_rows += 1;
     const layers: u32 = @intCast(self.meta_data.value.len);
 
-    // const atalas_width = img_info.width * atlas_cols;
-    // const atlas_height = img_info.height * atlas_rows;
-    // var atlas = try self.alloc.alloc(u8, atalas_width * atlas_height * img_info.bytes_per_component * img_info.num_components);
-    // defer self.alloc.free(atlas);
-    // std.debug.print("Atlas size: {d}x{d}\n", .{ atalas_width, atlas_height });
     const tex = gctx.createTexture(.{
         .usage = .{ .texture_binding = true, .copy_dst = true },
         .dimension = .tdim_2d,
@@ -162,20 +183,6 @@ pub fn loadTextures(self: *TextureLoader, gctx: *zgpu.GraphicsContext) !struct {
         var img = try zstbi.Image.loadFromFile(img_file, 4); // rgba
         defer img.deinit();
 
-        var x_offset: u32 = 0;
-        var y_offset: u32 = 0;
-        try parseFilename(meta.filename, &x_offset, &y_offset);
-
-        // Flip as we are loading texture from NW but images are indexed from SW
-        // y_offset = atlas_rows - y_offset - 1;
-        // x_offset *= img_info.width;
-        // y_offset *= img_info.height;
-        // const img_offset = x_offset * img_info.bytes_per_component * img_info.num_components + y_offset * img.bytes_per_row * atlas_cols;
-        // for (0..img.height) |row| {
-        //     const row_offset = img_offset + row * atalas_width * img_info.bytes_per_component * img_info.num_components;
-        //     const row_data = img.data[row * img.bytes_per_row .. (row + 1) * img.bytes_per_row];
-        //     @memcpy(atlas[row_offset .. row_offset + img.bytes_per_row], row_data);
-        // }
         gctx.queue.writeTexture(
             .{ .texture = gctx.lookupResource(tex).?, .origin = .{.z = @intCast(i)} },
             .{ .bytes_per_row = img.bytes_per_row, .rows_per_image = img.height },
@@ -183,18 +190,97 @@ pub fn loadTextures(self: *TextureLoader, gctx: *zgpu.GraphicsContext) !struct {
             u8,
             img.data,
         );
-    gctx.queue.submit(&.{});
-
-        std.debug.print("Texture {d} loaded\n", .{ i });
+        gctx.queue.submit(&.{});
     }
 
-    // gctx.queue.writeTexture(
-    //     .{ .texture = gctx.lookupResource(tex).? },
-    //     .{ .bytes_per_row = atalas_width * img_info.bytes_per_component * img_info.num_components, .rows_per_image = atlas_height },
-    //     .{ .width = atalas_width, .height = atlas_height },
-    //     u8,
-    //     atlas,
-    // );
-
     return .{ .tex = tex, .texv = texv };
+}
+
+
+pub fn loadTexturesGl(self: *TextureLoader) !gl.Uint{
+    // Load first image to get width and height
+    const img_info = blk: {
+        const meta = self.meta_data.value[0];
+        const img_file: [:0]const u8 = try std.fs.path.joinZ(self.alloc, &.{ self.img_dir, meta.filename });
+        defer self.alloc.free(img_file);
+        var img = try zstbi.Image.loadFromFile(img_file, 4); // rgba
+        defer img.deinit();
+        break :blk .{
+            .width = img.width,
+            .height = img.height,
+            .num_components = img.num_components,
+            .bytes_per_component = img.bytes_per_component,
+            .is_hdr = img.is_hdr,
+        };
+    };
+
+    var tex: c_uint = undefined;
+    gl.genTextures(1, &tex);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(
+        gl.TEXTURE_2D,
+        gl.TEXTURE_WRAP_S,
+        gl.REPEAT,
+    );
+    gl.texParameteri(
+        gl.TEXTURE_2D,
+        gl.TEXTURE_WRAP_T,
+        gl.REPEAT,
+    );
+    gl.texParameteri(
+        gl.TEXTURE_2D,
+        gl.TEXTURE_MIN_FILTER,
+        gl.LINEAR,
+    );
+    gl.texParameteri(
+        gl.TEXTURE_2D,
+        gl.TEXTURE_MAG_FILTER,
+        gl.LINEAR,
+    );
+
+    var atlas_cols: u32 = 0;
+    var atlas_rows: u32 = 0;
+    try self.findMaxRowCol(&atlas_cols, &atlas_rows);
+    atlas_cols += 1;
+    atlas_rows += 1;
+    gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGB,
+        @intCast(atlas_cols * img_info.width),
+        @intCast(atlas_rows * img_info.height),
+        0,
+        gl.RGB,
+        gl.UNSIGNED_BYTE,
+        null,
+    );
+
+
+    for (self.meta_data.value) |meta| {
+        const img_file: [:0]const u8 = try std.fs.path.joinZ(self.alloc, &.{self.img_dir, meta.filename});
+        defer self.alloc.free(img_file);
+        var img = try zstbi.Image.loadFromFile(img_file, 0);
+        defer img.deinit();
+
+        var x_offset: u32 = 0;
+        var y_offset: u32 = 0;
+        try parseFilename(meta.filename, &x_offset, &y_offset);
+        y_offset = atlas_rows - y_offset - 1; // Invert y axis
+        x_offset *= img_info.width;
+        y_offset *= img_info.height;
+        gl.texSubImage2D(
+            gl.TEXTURE_2D,
+            0,
+            @intCast(x_offset),
+            @intCast(y_offset),
+            @intCast(img.width),
+            @intCast(img.height),
+            gl.RGB,
+            gl.UNSIGNED_BYTE,
+            img.data.ptr,
+        );
+    }
+    gl.generateMipmap(gl.TEXTURE_2D);
+
+    return tex;
 }

@@ -22,6 +22,7 @@ struct VertexOut {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) tex_index: u32,
 ) -> VertexOut {
     var output: VertexOut;
     output.position_clip = vec4(position, 1.0) * draw_uniforms.object_to_world * frame_uniforms.world_to_clip;
@@ -32,6 +33,7 @@ struct VertexOut {
         draw_uniforms.object_to_world[2].xyz,
     );
     output.uv = uv;
+    output.tex_index = tex_index;
 
     return output;
 }

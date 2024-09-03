@@ -107,7 +107,9 @@ pub fn create(alloc: Allocator, window: *zglfw.Window, bounds: Bounds, geotiff: 
     const sampler = gctx.createSampler(.{ .mag_filter = .linear, .min_filter = .linear });
     var mesh_uvs = std.ArrayList([2]f32).init(arena);
     try mesh_uvs.resize(mesh_positions.items.len);
-    try textureLoader.calculateTexCooords(bounds, mesh_positions, &mesh_uvs);
+    var mesh_tex_index = std.ArrayList(u32).init(arena);
+    try mesh_tex_index.resize(mesh_positions.items.len);
+    try textureLoader.calculateTexCooords(bounds, mesh_positions, &mesh_uvs, &mesh_tex_index);
 
     // Uniform buffer and layout
     const frame_bgl = gctx.createBindGroupLayout(&.{
@@ -161,7 +163,7 @@ pub fn create(alloc: Allocator, window: *zglfw.Window, bounds: Bounds, geotiff: 
             vertex_data[i].position = mesh_positions.items[i];
             vertex_data[i].normal = mesh_normals.items[i];
             vertex_data[i].uv = mesh_uvs.items[i];
-            vertex_data[i].tex_index = 0;
+            vertex_data[i].tex_index = mesh_tex_index.items[i];
         }
         gctx.queue.writeBuffer(gctx.lookupResource(vertex_buf).?, 0, Vertex, vertex_data);
     }
@@ -329,7 +331,7 @@ pub fn draw(self: *Self) void {
     const draw_bg = gctx.lookupResource(self.draw_bg) orelse return;
     const vertex_buf_info = gctx.lookupResourceInfo(self.vertex_buf) orelse return;
     const index_buf_info = gctx.lookupResourceInfo(self.index_buf) orelse return;
-    // std.debug.print("Got common resorces\n", .{});
+    std.debug.print("Got common resorces\n", .{});
 
     const swapchain_texv = gctx.swapchain.getCurrentTextureView();
     defer swapchain_texv.release();

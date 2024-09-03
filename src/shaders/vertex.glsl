@@ -8,15 +8,17 @@ out vec3 FragPos;
 out vec3 Normal;
 out vec2 TexCoords;
 
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
+uniform mat4 world_to_clip;
+uniform vec3 camera_position;
+uniform mat4 object_to_world;
+uniform vec4 basecolor_roughness;
+uniform uint tex;
 
 void main()
 {
-    FragPos = vec3(model * vec4(aPos, 1.0));
-    Normal = mat3(transpose(inverse(model))) * aNormal;
+    FragPos = (vec4(aPos, 1.0) * object_to_world).xyz;
+    Normal = aNormal * mat3(object_to_world);
     TexCoords = aTexCoords;
 
-    gl_Position = projection * view * vec4(FragPos, 1.0);
+    gl_Position = vec4(aPos, 1.0) * object_to_world * world_to_clip;
 }
