@@ -13,6 +13,9 @@ uniform vec3 camera_position;
 uniform mat4 object_to_world;
 uniform vec4 basecolor_roughness;
 uniform uint tex;
+uniform uint flat_shading;
+uniform uint follow_camera_light;
+uniform float ambient_light;
 
 void main()
 {

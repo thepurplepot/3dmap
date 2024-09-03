@@ -4,7 +4,7 @@ const zgui = @import("zgui");
 const zglfw = @import("zglfw");
 const zopengl = @import("zopengl");
 const gl = zopengl.bindings;
-const AppState = @import("AppState_gl.zig");
+const AppState = @import("AppState.zig");
 const MeshGenerator = @import("mesh_generator.zig");
 const Bounds = MeshGenerator.Bounds;
 const zm = @import("zmath");
@@ -156,6 +156,7 @@ fn bindMesh(self: *Self, alloc: Allocator, bounds: Bounds, geotiff: []const u8, 
 
 pub fn draw(self: Self, state: *AppState) void {
     gl.useProgram(self.program);
+    gl.enable(gl.DEPTH_TEST); 
     gl.clearColor(0.2, 0.4, 0.8, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -182,7 +183,7 @@ pub fn draw(self: Self, state: *AppState) void {
     const world_to_clip_loc = gl.getUniformLocation(self.program, "world_to_clip");
     gl.uniformMatrix4fv(world_to_clip_loc, 1, gl.TRUE, @ptrCast(&cam_world_to_clip));
     const camera_position_loc = gl.getUniformLocation(self.program, "camera_position");
-    gl.uniformMatrix3fv(camera_position_loc, 1, gl.FALSE, &state.camera.position);
+    gl.uniform3fv(camera_position_loc, 1, &state.camera.position);
 
     // Draw Uniforms
     const object_to_world_loc = gl.getUniformLocation(self.program, "object_to_world");
@@ -191,6 +192,14 @@ pub fn draw(self: Self, state: *AppState) void {
     gl.uniform4f(basecolor_roughness_loc, 0.2, 0.2, 0.2, 1.0);
     const texture_loc = gl.getUniformLocation(self.program, "tex");
     gl.uniform1ui(texture_loc, @intFromBool(state.options.texture));
+    const flat_shading_loc = gl.getUniformLocation(self.program, "flat_shading");
+    gl.uniform1ui(flat_shading_loc, @intFromBool(state.options.flat_shading));
+    const follow_camera_light_loc = gl.getUniformLocation(self.program, "follow_camera_light");
+    gl.uniform1ui(follow_camera_light_loc, @intFromBool(state.options.follow_camera_light));
+    const ambient_light_loc = gl.getUniformLocation(self.program, "ambient_light");
+    gl.uniform1f(ambient_light_loc, state.options.ambient_light);
+    const specular_strength_loc = gl.getUniformLocation(self.program, "specular_strength");
+    gl.uniform1f(specular_strength_loc, state.options.specular_strength);
 
     // draw mesh
     gl.bindVertexArray(self.vao);
@@ -212,7 +221,6 @@ fn compileLinkProgram(vs: [*]const u8, vs_len: usize, fs: [*]const u8, fs_len: u
     var params: c_int = -1;
     gl.getShaderiv(vertex_shader, gl.COMPILE_STATUS, &params);
     if (params != gl.TRUE) {
-        // try glLogError(log, "ERROR: GL shader index {d} did not compile\n", .{vertex_shader});
         printShaderInfoLog(vertex_shader);
         return error.ShaderCompile;
     }
@@ -225,7 +233,6 @@ fn compileLinkProgram(vs: [*]const u8, vs_len: usize, fs: [*]const u8, fs_len: u
     params = -1;
     gl.getShaderiv(fragment_shader, gl.COMPILE_STATUS, &params);
     if (params != gl.TRUE) {
-        // try glLogError(log, "ERROR: GL shader index {d} did not compile\n", .{fragment_shader});
         printShaderInfoLog(fragment_shader);
         return error.ShaderCompile;
     }
@@ -238,12 +245,10 @@ fn compileLinkProgram(vs: [*]const u8, vs_len: usize, fs: [*]const u8, fs_len: u
     params = -1;
     gl.getProgramiv(program, gl.LINK_STATUS, &params);
     if (params != gl.TRUE) {
-        // try glLogError(log, "ERROR: could not link shader programme GL index {d}\n", .{program});
         printProgramInfoLog(program);
         return error.ProgramLink;
     }
 
-    // try printAll(log, program);
     return @bitCast(program);
 }
 

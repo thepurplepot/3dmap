@@ -1,6 +1,6 @@
 const std = @import("std");
 const zglfw = @import("zglfw");
-const AppState = @import("AppState_gl.zig");
+const AppState = @import("AppState.zig");
 const Renderer = @import("opengl_renderer.zig");
 
 pub const std_options = std.Options{

@@ -1,6 +1,7 @@
 const std = @import("std");
 const zglfw = @import("zglfw");
 const AppState = @import("AppState.zig");
+const Renderer = @import("wgpu_renderer.zig");
 const zgui = @import("zgui");
 const zgpu = @import("zgpu");
 const wgpu = zgpu.wgpu;
@@ -24,7 +25,10 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    var app = try AppState.create(allocator, window, .{ .sw = .{ .lon = -3.3, .lat = 54.4 }, .ne = .{ .lon = -2.8, .lat = 54.7 } }, "res/geo.tif");
+    var renderer = try Renderer.create(allocator, window, .{ .sw = .{ .lon = -3.3, .lat = 54.4 }, .ne = .{ .lon = -2.8, .lat = 54.7 } }, "res/geo.tif");
+    defer renderer.destroy(allocator);
+
+    var app = try AppState.create(allocator, window);
     defer app.destroy(allocator);
 
     const scale_factor = scale_factor: {
@@ -63,10 +67,9 @@ pub fn main() !void {
         zglfw.pollEvents();
 
         app.update();
-        app.draw();
+        renderer.draw(app);
 
         if (app.gctx.present() == .swap_chain_resized) {
-            // std.debug.print("Swap chain resized\n", .{});
             // Release old depth texture.
             app.gctx.releaseResource(app.depth_texv);
             app.gctx.destroyResource(app.depth_tex);
