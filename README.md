@@ -11,6 +11,7 @@ Cross platform 3D terrain renderer from real world data.
 - GDAL
 - GLFW3
 - OpenGL 4.0
+- Expat
 
 # Setup
 Get topography data from: https://opentopography.org/ (topography for the Lake District is included in res/geo.tiff).

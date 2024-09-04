@@ -7,6 +7,7 @@ const Builder = struct {
     check_step: *std.Build.Step,
     run_step: *std.Build.Step,
     get_step: *std.Build.Step,
+    test_step: *std.Build.Step,
     backend: BackendType,
 
     const BackendType = enum {
@@ -18,6 +19,7 @@ const Builder = struct {
         const check_step = b.step("check", "check");
         const run_step = b.step("run", "Run the application");
         const get_step = b.step("get", "Get textures from the google maps API");
+        const test_step = b.step("test", "Run tests");
         const backend = b.option(BackendType, "backend", "") orelse BackendType.glfw_opengl3;
 
         return .{
@@ -27,6 +29,7 @@ const Builder = struct {
             .check_step = check_step,
             .run_step = run_step,
             .get_step = get_step,
+            .test_step = test_step,
             .backend = backend,
         };
     }
@@ -55,7 +58,9 @@ const Builder = struct {
             .optimize = self.opt,
         });
 
-        const zstbi = self.b.dependency("zstbi", .{});
+        const zstbi = self.b.dependency("zstbi", .{
+            .target = self.target,
+        });
         gen_tex.root_module.addImport("zstbi", zstbi.module("root"));
         gen_tex.linkLibrary(zstbi.artifact("zstbi"));
 
@@ -100,7 +105,9 @@ const Builder = struct {
             },
         }
 
-        const zgui = self.b.dependency("zgui", .{ .target = self.target, .backend = self.backend });
+        const zgui = self.b.dependency("zgui", .{ 
+            .target = self.target, .backend = self.backend 
+        });
         exe.root_module.addImport("zgui", zgui.module("root"));
         exe.linkLibrary(zgui.artifact("imgui"));
 
@@ -109,14 +116,29 @@ const Builder = struct {
         });
         exe.root_module.addImport("zmath", zmath.module("root"));
 
-        const zstbi = self.b.dependency("zstbi", .{});
+        const zstbi = self.b.dependency("zstbi", .{
+            .target = self.target,
+        });
         exe.root_module.addImport("zstbi", zstbi.module("root"));
         exe.linkLibrary(zstbi.artifact("zstbi"));
 
         exe.linkSystemLibrary("gdal");
+        // exe.linkSystemLibrary("expat");
 
         const installed = self.installAndCheck(exe);
         self.run_step.dependOn(&installed.run_artifact.step);
+    }
+
+    fn buildTests(self: *Builder) void {
+        const tests = self.b.addTest(.{
+            .root_source_file = self.b.path("src/GpxParser.zig"),
+            .target = self.target,
+            .optimize = self.opt,
+        });
+        tests.linkSystemLibrary("expat");
+
+        const run_tests = self.b.addRunArtifact(tests);
+        self.test_step.dependOn(&run_tests.step);
     }
 };
 
@@ -124,4 +146,5 @@ pub fn build(b: *std.Build) void {
     var builder = Builder.init(b);
     builder.buildTexGen();
     builder.buildApp();
+    builder.buildTests();
 }
