@@ -6,7 +6,7 @@ const zopengl = @import("zopengl");
 const gl = zopengl.bindings;
 const AppState = @import("AppState.zig");
 const MeshGenerator = @import("mesh_generator.zig");
-const Bounds = MeshGenerator.Bounds;
+const Bounds = @import("utils.zig").Bounds;
 const zm = @import("zmath");
 const TextureLoader = @import("TextureLoader.zig");
 
@@ -20,6 +20,7 @@ vao: gl.Uint,
 tex: gl.Uint,
 program: gl.Uint,
 indicies_length: usize,
+mesh_scale: f32,
 
 
 const Vertex = struct {
@@ -28,8 +29,9 @@ const Vertex = struct {
     uv: [2]f32,
 };
 
-
 const Self = @This();
+
+const mesh_enlargment = 128; //TODO we probably want this in state to do camera positioning?
 
 pub fn create(alloc: Allocator, bounds: Bounds, geotiff: []const u8) !Self {
     try zglfw.init();
@@ -79,6 +81,7 @@ pub fn create(alloc: Allocator, bounds: Bounds, geotiff: []const u8) !Self {
         .tex = 0,
         .program = 0,
         .indicies_length = 0,
+        .mesh_scale = 0.0,
     };
 
     try ret.bindMesh(alloc, bounds, geotiff, &texture_loader);
@@ -101,27 +104,24 @@ fn bindMesh(self: *Self, alloc: Allocator, bounds: Bounds, geotiff: []const u8, 
     const arena = areana_state.allocator();
 
     // Generate mesh from GeoTiff data
-    var mesh_indices = std.ArrayList(MeshGenerator.IndexType).init(arena);
-    var mesh_positions = std.ArrayList([3]f32).init(arena);
-    var mesh_normals = std.ArrayList([3]f32).init(arena);
-    try MeshGenerator.generateMesh(alloc, bounds, geotiff, &mesh_indices, &mesh_positions, &mesh_normals);
+    const mesh = try MeshGenerator.generateMesh(arena, bounds, geotiff);
 
-    const vertices_count = @as(u32, @intCast(mesh_positions.items.len));
-    const indices_count = @as(u32, @intCast(mesh_indices.items.len));
+    const vertices_count = @as(u32, @intCast(mesh.positions.len));
+    const indices_count = @as(u32, @intCast(mesh.indices.len));
+    self.mesh_scale = @max(1 / mesh.width_m, 1 / mesh.height_m);
     self.indicies_length = @intCast(indices_count);
 
     // Create UVs
-    var mesh_uvs = std.ArrayList([2]f32).init(arena);
-    try mesh_uvs.resize(mesh_positions.items.len);
-    texture_loader.calculateTexCooordsGl(bounds, mesh_positions, &mesh_uvs);
+    const mesh_uvs = try arena.alloc([2]f32, mesh.positions.len);
+    texture_loader.calculateTexCooordsGl(bounds, mesh.positions, mesh_uvs);
 
-    var mesh_verticies = try std.ArrayList(Vertex).initCapacity(arena, vertices_count);
+    var mesh_verticies = try arena.alloc(Vertex, vertices_count);
     for(0..vertices_count) |i| {
-        try mesh_verticies.append(.{
-            .position = mesh_positions.items[i],
-            .normal = mesh_normals.items[i],
-            .uv = mesh_uvs.items[i],
-        });
+        mesh_verticies[i] = .{
+            .position = mesh.positions[i],
+            .normal = mesh.normals[i],
+            .uv = mesh_uvs[i],
+        };
     }
 
     // create buffers/arrays
@@ -132,10 +132,10 @@ fn bindMesh(self: *Self, alloc: Allocator, bounds: Bounds, geotiff: []const u8, 
     gl.bindVertexArray(self.vao);
     // load data into vertex buffers
     gl.bindBuffer(gl.ARRAY_BUFFER, self.vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, vertices_count * @sizeOf(Vertex), mesh_verticies.items.ptr, gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices_count * @sizeOf(Vertex), mesh_verticies.ptr, gl.STATIC_DRAW);
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, self.ebo);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices_count * @sizeOf(u32), mesh_indices.items.ptr, gl.STATIC_DRAW);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices_count * @sizeOf(u32), mesh.indices.ptr, gl.STATIC_DRAW);
 
     // set the vertex attribute pointers
     // vertex Positions
@@ -177,7 +177,7 @@ pub fn draw(self: Self, state: *AppState) void {
     );
     const cam_world_to_clip = zm.mul(cam_world_to_view, cam_view_to_clip);
 
-    const mesh_obj_to_world = zm.mul(zm.scaling(128.0, 128 * state.options.elevation_scale, 128.0), zm.rotationY(-90.0 / std.math.deg_per_rad));
+    const mesh_obj_to_world = zm.scaling(self.mesh_scale * mesh_enlargment, mesh_enlargment * self.mesh_scale * state.options.elevation_scale, self.mesh_scale * mesh_enlargment);
 
     // Frame uniforms
     const world_to_clip_loc = gl.getUniformLocation(self.program, "world_to_clip");

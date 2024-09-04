@@ -13,17 +13,17 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var renderer = try Renderer.create(allocator, .{ .sw = .{ .lon = -3.3, .lat = 54.4 }, .ne = .{ .lon = -2.8, .lat = 54.7 } }, "res/geo.tif");
+    var renderer = try Renderer.create(allocator, .{ .sw = .{ .lon = -3.1, .lat = 54.4 }, .ne = .{ .lon = -2.8, .lat = 54.7 } }, "res/geo.tif");
     defer renderer.destroy(allocator);
 
-    var app = try AppState.create(allocator, renderer.window);
+    var app = try AppState.create(allocator);
     defer app.destroy(allocator);
 
 
     while (!renderer.window.shouldClose() and renderer.window.getKey(.escape) != .press) {
         zglfw.pollEvents();
 
-        app.update();
+        app.update(renderer.window);
         renderer.draw(app);
     }
 }

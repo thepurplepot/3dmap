@@ -1,5 +1,9 @@
 const std = @import("std");
 const zstbi = @import("zstbi"); // For cropping copywrite marking
+const utils = @import("utils.zig");
+const LatLon = utils.LatLon;
+const Bounds = utils.Bounds;
+const Point = utils.Point;
 const Allocator = std.mem.Allocator;
 const Client = std.http.Client;
 
@@ -14,21 +18,6 @@ const Secret = struct {
 fn readSecret(alloc: Allocator) !std.json.Parsed(Secret) {
     return std.json.parseFromSlice(Secret, alloc, secret_file, .{});
 }
-
-const Point = struct {
-    x: f32,
-    y: f32,
-};
-
-const LatLon = struct {
-    lat: f32,
-    lon: f32,
-};
-
-const Bounds = struct {
-    sw: LatLon,
-    ne: LatLon,
-};
 
 const MetaData = struct {
     filename: [:0]const u8,

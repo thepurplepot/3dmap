@@ -5,16 +5,14 @@ const zgui = @import("zgui");
 const zm = @import("zmath");
 const Allocator = std.mem.Allocator;
 
-window: *zglfw.Window, //TODO remove window (Renderer resposibility)
-
 size: struct {
     width: u32 = 800,
     height: u32 = 500,
 } = .{},
 
 camera: struct {
-    position: [3]f32 = .{ 0.0, 5.0, 3.0 },
-    forward: [3]f32 = .{ 0.0, 0.0, -1.0 },
+    position: [3]f32 = .{ 64, 5.0, 10 },
+    forward: [3]f32 = .{ 0.0, 0.0, 0.0 },
     pitch: f32 = 0.125 * math.pi,
     yaw: f32 = 0.0,
 } = .{},
@@ -43,9 +41,9 @@ const Vertex = struct {
     tex_index: u32,
 };
 
-pub fn create(alloc: Allocator, window: *zglfw.Window) !*Self {
+pub fn create(alloc: Allocator) !*Self {
     const app_state = try alloc.create(Self);
-    app_state.* = .{.window = window};
+    app_state.* = .{};
     return app_state;
 }
 
@@ -70,7 +68,7 @@ fn updateFpsCounter() f64 {
     return state.fps;
 }
 
-pub fn update(self: *Self) void {
+pub fn update(self: *Self, window: *zglfw.Window) void {
     const fps = updateFpsCounter();
     zgui.backend.newFrame(self.size.width, self.size.height);
     zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .always });
@@ -101,8 +99,6 @@ pub fn update(self: *Self) void {
         }
     }
     zgui.end();
-
-    const window = self.window;
 
     // Handle camera rotation with mouse.
     {

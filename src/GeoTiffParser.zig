@@ -1,4 +1,7 @@
 const std = @import("std");
+const utils = @import("utils.zig");
+const LatLon = utils.LatLon;
+const Bounds = utils.Bounds;
 const Allocator = std.mem.Allocator;
 const gdal = @cImport({
     @cInclude("gdal.h");
@@ -9,16 +12,6 @@ const Inner = struct {
     adfGeoTransform: [6]f64,
     err: ?anyerror = null,
     bounds: Bounds,
-};
-
-pub const LatLon = struct {
-    lon: f32,
-    lat: f32,
-};
-
-pub const Bounds = struct {
-    sw: LatLon,
-    ne: LatLon,
 };
 
 inner: *Inner,

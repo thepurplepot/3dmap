@@ -1,8 +1,9 @@
 const std = @import("std");
 const zstbi = @import("zstbi");
-const Bounds = @import("GeoTiffParser.zig").Bounds;
-const LatLon = @import("GeoTiffParser.zig").LatLon;
 const MeshGenerator = @import("mesh_generator.zig");
+const utils = @import("utils.zig");
+const LatLon = utils.LatLon;
+const Bounds = utils.Bounds;
 const Allocator = std.mem.Allocator;
 const zgpu = @import("zgpu");
 const zopengl = @import("zopengl");
@@ -83,29 +84,27 @@ pub fn calculateTexCooords(self: TextureLoader, bounds: Bounds, mesh_positions: 
     }
 }
 
-pub fn calculateTexCooordsGl(self: TextureLoader, bounds: Bounds, mesh_positions: std.ArrayList([3]f32), mesh_uvs: *std.ArrayList([2]f32)) void {
-    const lon_scale = (bounds.ne.lon - bounds.sw.lon) / (self.bounds.ne.lon - self.bounds.sw.lon);
-    const lon_offset = (bounds.sw.lon - self.bounds.sw.lon) / (self.bounds.ne.lon - self.bounds.sw.lon);
-    const lat_scale = (bounds.ne.lat - bounds.sw.lat) / (self.bounds.ne.lat - self.bounds.sw.lat);
-    const lat_offset = (self.bounds.ne.lat - bounds.ne.lat) / (self.bounds.ne.lat - self.bounds.sw.lat);
-    const aspect = MeshGenerator.boundsAspect(bounds);
+pub fn calculateTexCooordsGl(self: TextureLoader, bounds: Bounds, mesh_positions: [][3]f32, mesh_uvs: [][2]f32) void {
+    const lon_scale = (self.bounds.ne.lon - self.bounds.sw.lon);
+    const lat_scale = (self.bounds.ne.lat - self.bounds.sw.lat);
 
-    for (mesh_positions.items, 0..) |position, i| {
-        const v = lat_offset + ((position[0] / 1) + 0.5) * lat_scale;
-        const u = lon_offset + ((position[2] / aspect) + 0.5) * lon_scale;
+    for (mesh_positions, 0..) |position, i| {
+        const pos = utils.mToLatLonSpace(bounds, .{ .x = position[0], .y = position[2] });
+        const v = (self.bounds.ne.lat - pos.lat) / lat_scale; // So NW is 0,0
+        const u = (pos.lon - self.bounds.sw.lon) / lon_scale;
 
-        mesh_uvs.items[i] = .{ u, v };
+        mesh_uvs[i] = .{ u, v };
     }
 }
 
-fn getIndex(self: TextureLoader, lon: f64, lat: f64) !u32 {
-    for (self.meta_data.value, 0..) |meta, i| {
-        if(meta.bounds.sw.lon <= lon and lon <= meta.bounds.ne.lon and meta.bounds.sw.lat <= lat and lat <= meta.bounds.ne.lat) {
-            return @intCast(i);
-        }
-    }
-    return error.OutOfBounds;
-}
+// fn getIndex(self: TextureLoader, lon: f64, lat: f64) !u32 {
+//     for (self.meta_data.value, 0..) |meta, i| {
+//         if(meta.bounds.sw.lon <= lon and lon <= meta.bounds.ne.lon and meta.bounds.sw.lat <= lat and lat <= meta.bounds.ne.lat) {
+//             return @intCast(i);
+//         }
+//     }
+//     return error.OutOfBounds;
+// }
 
 fn parseFilename(filename: []const u8, col: *u32, row: *u32) !void {
     var parts = std.mem.splitAny(u8, filename, ".");
@@ -140,8 +139,7 @@ fn findMaxRowCol(self: TextureLoader, max_col: *u32, max_row: *u32) !void {
     }
 }
 
-// Cleanup
-//TODO we could actually have an atlas stored as an array of 2D textures, then different mip levels for each tile (what is in focus)
+// TODO Cleanup
 pub fn loadTextures(self: *TextureLoader, gctx: *zgpu.GraphicsContext) !struct {
     tex: zgpu.TextureHandle,
     texv: zgpu.TextureViewHandle,
