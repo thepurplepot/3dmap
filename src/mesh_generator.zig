@@ -16,6 +16,7 @@ pub fn generateMesh(
     normals: [][3]f32,
     width_m: f32,
     height_m: f32,
+    ele_texture: c_uint,
 }{
     var parser = try GeoTiffParser.create(arena, filename);
     defer parser.deinit(arena);
@@ -35,23 +36,25 @@ pub fn generateMesh(
     try generateVertices(mesh_indices, mesh_positions, width, height, elevations, bounds, lat_scale, lon_scale);
     try generateNormals(mesh_normals, mesh_positions, mesh_indices);
     std.log.info("Generated mesh - Vertices: {d}, Indices: {d}", .{mesh_positions.len, mesh_indices.len});
+    const tex = try uploadElevationTexture(elevations, width, height);
 
     const size = utils.latLonToMSpace(bounds, bounds.ne);
     std.log.info("Bounds size: {d} x {d} m", .{size.x, size.y});
-    return .{.indices = mesh_indices, .positions = mesh_positions, .normals = mesh_normals, .width_m = size.x, .height_m = size.y};
+    return .{.indices = mesh_indices, .positions = mesh_positions, .normals = mesh_normals, .width_m = size.x, .height_m = size.y, .ele_texture = tex};
 }
 
-// pub fn boundsAspect(bounds: Bounds) f32 {
-//     const lon_diff = bounds.ne.lon - bounds.sw.lon;
-//     const lat_diff = bounds.ne.lat - bounds.sw.lat;
+const gl = @import("zopengl").bindings; //FIXME
+fn uploadElevationTexture(elevations: []const f32, width: usize, height: usize) !c_uint {
+    var tex: c_uint = undefined;
+    gl.genTextures(1, &tex);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, @intCast(width), @intCast(height), 0, gl.RED, gl.FLOAT, elevations.ptr);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.bindTexture(gl.TEXTURE_2D, 0);
 
-//     // Convert longitude and latitude differences to meters
-//     const earth_radius = 6371000.0;
-//     const x = lon_diff * (std.math.cos(bounds.sw.lat * std.math.pi / 180.0) * std.math.pi / 180.0) * earth_radius;
-//     const y = lat_diff * (std.math.pi / 180.0) * earth_radius;
-
-//     return x / y;
-// }
+    return tex;
+}
 
 fn generateVertices(mesh_indicies: []IndexType, mesh_positions: [][3]f32, width: usize, height: usize, elevations: []f32, bounds: Bounds, lat_scale: f32, lon_scale: f32) !void {
     var index_count: usize = 0;

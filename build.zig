@@ -118,8 +118,8 @@ const Builder = struct {
         exe.root_module.addImport("zstbi", zstbi.module("root"));
         exe.linkLibrary(zstbi.artifact("zstbi"));
 
-        exe.linkSystemLibrary("gdal");
-        // exe.linkSystemLibrary("expat");
+        exe.linkSystemLibrary("gdal"); // GeoTIFF
+        exe.linkSystemLibrary("expat"); // XML (GPX parser)
 
         if (self.target.query.os_tag == .windows) {
             exe.want_lto = false;

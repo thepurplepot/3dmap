@@ -6,21 +6,34 @@ const zopengl = @import("zopengl");
 const gl = zopengl.bindings;
 const AppState = @import("AppState.zig");
 const MeshGenerator = @import("mesh_generator.zig");
+const TrackGenerator = @import("track_generator.zig");
 const Bounds = @import("utils.zig").Bounds;
 const zm = @import("zmath");
 const TextureLoader = @import("TextureLoader.zig");
 
 const vs_src = @embedFile("shaders/vertex.glsl");
 const fs_src = @embedFile("shaders/fragment.glsl");
+const line_vs_src = @embedFile("shaders/line_vertex.glsl");
+const line_fs_src = @embedFile("shaders/line_fragment.glsl");
 
+//TODO make a table to store OpenGl handles
 window: *zglfw.Window,
 vbo: gl.Uint,
 ebo: gl.Uint,
 vao: gl.Uint,
 tex: gl.Uint,
 program: gl.Uint,
+line_program: gl.Uint,
+line_vertices_count: usize,
+line_vao: gl.Uint,
+line_vbo: gl.Uint,
 indicies_length: usize,
+ele_texture: gl.Uint,
 mesh_scale: f32,
+bounds_m: [2]f32,
+//Mesh class with all stuff for drawing mesh, route class with all stuff for drwing route
+//cam_world_to_clip and obj_to_world are replicated in draw calls
+//Fix draw structure
 
 
 const Vertex = struct {
@@ -33,7 +46,7 @@ const Self = @This();
 
 const mesh_enlargment = 128; //TODO we probably want this in state to do camera positioning?
 
-pub fn create(alloc: Allocator, bounds: Bounds, geotiff: []const u8) !Self {
+pub fn create(alloc: Allocator, bounds: Bounds, geotiff: []const u8, gpx: []const u8) !Self {
     try zglfw.init();
     errdefer zglfw.terminate();
 
@@ -80,12 +93,20 @@ pub fn create(alloc: Allocator, bounds: Bounds, geotiff: []const u8) !Self {
         .vao = 0,
         .tex = 0,
         .program = 0,
+        .line_program = 0,
+        .line_vertices_count = 0,
+        .line_vao = 0,
+        .line_vbo = 0,
         .indicies_length = 0,
+        .ele_texture = 0,
         .mesh_scale = 0.0,
+        .bounds_m = .{ 0, 0 },
     };
 
     try ret.bindMesh(alloc, bounds, geotiff, &texture_loader);
+    try ret.bindLine(alloc, bounds, gpx);
     ret.program = try compileLinkProgram(vs_src.ptr, vs_src.len, fs_src.ptr, fs_src.len);
+    ret.line_program = try compileLinkProgram(line_vs_src.ptr, line_vs_src.len, line_fs_src.ptr, line_fs_src.len);
 
     return ret;
 }
@@ -105,6 +126,8 @@ fn bindMesh(self: *Self, alloc: Allocator, bounds: Bounds, geotiff: []const u8, 
 
     // Generate mesh from GeoTiff data
     const mesh = try MeshGenerator.generateMesh(arena, bounds, geotiff);
+    self.ele_texture = mesh.ele_texture;
+    self.bounds_m = .{ mesh.width_m, mesh.height_m };
 
     const vertices_count = @as(u32, @intCast(mesh.positions.len));
     const indices_count = @as(u32, @intCast(mesh.indices.len));
@@ -151,6 +174,73 @@ fn bindMesh(self: *Self, alloc: Allocator, bounds: Bounds, geotiff: []const u8, 
     self.tex = try texture_loader.loadTexturesGl();
 
     gl.bindVertexArray(0);
+}
+
+fn bindLine(self: *Self, alloc: Allocator, bounds: Bounds, gpx: []const u8) !void {
+    var areana_state = std.heap.ArenaAllocator.init(alloc);
+    defer areana_state.deinit();
+    const arena = areana_state.allocator();
+
+    const points = try TrackGenerator.generateTrack(arena, bounds, gpx);
+
+    self.line_vertices_count = @intCast(points.len);
+
+    // Create buffers/arrays for the line
+    gl.genVertexArrays(1, &self.line_vao);
+    gl.genBuffers(1, &self.line_vbo);
+
+    gl.bindVertexArray(self.line_vao);
+    // Load data into vertex buffers
+    gl.bindBuffer(gl.ARRAY_BUFFER, self.line_vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, @intCast(self.line_vertices_count * @sizeOf([2]f32)), points.ptr, gl.STATIC_DRAW);
+    
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf([2]f32), @ptrFromInt(@as(usize, 0)));
+    gl.enableVertexAttribArray(0);
+
+    gl.bindVertexArray(0);
+    std.debug.print("Loaded GPX data, point count {d}\n", .{self.line_vertices_count});
+}
+
+pub fn drawLine(self: Self, state: AppState) void {
+    gl.useProgram(self.line_program);
+
+    const object_to_world_loc = gl.getUniformLocation(self.line_program, "object_to_world");
+    const world_to_clip_loc = gl.getUniformLocation(self.line_program, "world_to_clip");
+    const line_color_loc = gl.getUniformLocation(self.line_program, "line_color");
+    const m_range_loc = gl.getUniformLocation(self.line_program, "m_range");
+
+    const cam_world_to_view = zm.lookToLh(
+        zm.loadArr3(state.camera.position),
+        zm.loadArr3(state.camera.forward),
+        zm.f32x4(0.0, 1.0, 0.0, 0.0),
+    );
+    const cam_view_to_clip = zm.perspectiveFovLh(
+        0.25 * std.math.pi,
+        @as(f32, @floatFromInt(state.size.width)) / @as(f32, @floatFromInt(state.size.height)),
+        0.01,
+        200.0,
+    );
+    const cam_world_to_clip = zm.mul(cam_world_to_view, cam_view_to_clip);
+
+    const obj_to_world = zm.scaling(self.mesh_scale * mesh_enlargment, mesh_enlargment * self.mesh_scale * state.options.elevation_scale, self.mesh_scale * mesh_enlargment);
+
+    gl.uniformMatrix4fv(object_to_world_loc, 1, gl.FALSE, @ptrCast(&obj_to_world));
+    gl.uniformMatrix4fv(world_to_clip_loc, 1, gl.FALSE, @ptrCast(&cam_world_to_clip));
+    gl.uniform3f(line_color_loc, 1.0, 0.0, 0.0); // Set line color to red
+    gl.uniform2fv(m_range_loc, 1, @ptrCast(&self.bounds_m));
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, self.ele_texture);
+
+    // Draw GPX route line
+    gl.bindVertexArray(self.line_vao);
+    gl.lineWidth(5.0);
+    gl.pointSize(8.0);
+    gl.drawArrays(gl.LINE_STRIP, 0, @intCast(self.line_vertices_count));
+    gl.drawArrays(gl.POINTS, 0, @intCast(self.line_vertices_count));
+    gl.bindVertexArray(0);
+
+    self.window.swapBuffers(); //MOVED
 }
 
 
@@ -202,13 +292,14 @@ pub fn draw(self: Self, state: *AppState) void {
     gl.uniform1f(specular_strength_loc, state.options.specular_strength);
 
     // draw mesh
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, self.tex);
+
     gl.bindVertexArray(self.vao);
     gl.drawElements(gl.TRIANGLES, @intCast(self.indicies_length), gl.UNSIGNED_INT, @ptrFromInt(@as(usize, @intCast(0))));
     gl.bindVertexArray(0);
 
     zgui.backend.draw();
-
-    self.window.swapBuffers(); 
 }
 
 

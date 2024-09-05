@@ -7,13 +7,14 @@ pub const std_options = std.Options{
     .log_level = .info,
 };
 
-//TODO handle arguments for bounds, img_dir, geotiff, etc.
+//TODO handle arguments for bounds, img_dir, geotiff, route, etc.
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var renderer = try Renderer.create(allocator, .{ .sw = .{ .lon = -3.1, .lat = 54.4 }, .ne = .{ .lon = -2.8, .lat = 54.7 } }, "res/geo.tif");
+    const bounds = .{ .sw = .{ .lon = -3.3, .lat = 54.4 }, .ne = .{ .lon = -2.9, .lat = 54.6 }};
+    var renderer = try Renderer.create(allocator,  bounds, "res/geo.tif", "res/test.gpx");
     defer renderer.destroy(allocator);
 
     var app = try AppState.create(allocator);
@@ -25,5 +26,6 @@ pub fn main() !void {
 
         app.update(renderer.window);
         renderer.draw(app);
+        renderer.drawLine(app.*);
     }
 }
