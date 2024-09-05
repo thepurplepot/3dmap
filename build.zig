@@ -34,9 +34,7 @@ const Builder = struct {
         };
     }
 
-    fn installAndCheck(self: *Builder, elem: *std.Build.Step.Compile) struct{
-    install_artifact: *std.Build.Step.InstallArtifact,
-    run_artifact: *std.Build.Step.Run } {
+    fn installAndCheck(self: *Builder, elem: *std.Build.Step.Compile) struct { install_artifact: *std.Build.Step.InstallArtifact, run_artifact: *std.Build.Step.Run } {
         const duped = self.b.allocator.create(std.Build.Step.Compile) catch unreachable;
         duped.* = elem.*;
         self.b.installArtifact(elem);
@@ -70,7 +68,7 @@ const Builder = struct {
 
     fn buildApp(self: *Builder) void {
         const root_path = blk: {
-            switch(self.backend) {
+            switch (self.backend) {
                 .glfw_opengl3 => break :blk "src/main_gl.zig",
                 .glfw_wgpu => break :blk "src/main_wgpu.zig",
             }
@@ -105,9 +103,7 @@ const Builder = struct {
             },
         }
 
-        const zgui = self.b.dependency("zgui", .{ 
-            .target = self.target, .backend = self.backend 
-        });
+        const zgui = self.b.dependency("zgui", .{ .target = self.target, .backend = self.backend });
         exe.root_module.addImport("zgui", zgui.module("root"));
         exe.linkLibrary(zgui.artifact("imgui"));
 
@@ -124,6 +120,10 @@ const Builder = struct {
 
         exe.linkSystemLibrary("gdal");
         // exe.linkSystemLibrary("expat");
+
+        if (self.target.query.os_tag == .windows) {
+            exe.want_lto = false;
+        }
 
         const installed = self.installAndCheck(exe);
         self.run_step.dependOn(&installed.run_artifact.step);
