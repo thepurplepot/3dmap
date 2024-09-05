@@ -72,7 +72,7 @@ pub fn update(self: *Self, window: *zglfw.Window) void {
     const fps = updateFpsCounter();
     zgui.backend.newFrame(self.size.width, self.size.height);
     zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .always });
-    zgui.setNextWindowSize(.{ .w = 600, .h = 500, .cond = .always });
+    zgui.setNextWindowSize(.{ .w = 600, .h = 600, .cond = .always });
 
     zgui.pushStyleVar1f(.{ .idx = .window_rounding, .v = 5.0 });
     zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ 5.0, 5.0 } });
@@ -82,6 +82,7 @@ pub fn update(self: *Self, window: *zglfw.Window) void {
         zgui.textUnformatted("WASD - Move Camera");
         zgui.textUnformatted("Right Click - Capture Mouse for Rotation");
         zgui.textUnformatted("Left Click - Release Mouse Capture");
+        zgui.text("Camera Position: {d:.2}, {d:.2}, {d:.2}", .{ self.camera.position[0], self.camera.position[1], self.camera.position[2] });
         zgui.separator();
         zgui.text("{d:.1} fps", .{ fps });
         zgui.spacing();
